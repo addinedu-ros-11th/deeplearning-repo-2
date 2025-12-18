@@ -1,2 +1,98 @@
 # deeplearning-repo-2
 딥러닝 프로젝트 2조 저장소. 이상 행동 감지 CCTV (ABCD: abnormal behavior CCTV detection)
+
+# 프로젝트 개요
+
+## 지능형 CCTV 기반 응급·비상 상황 감지 시스템
+
+------------------------------------------------------------------------
+
+## 1. 프로젝트 배경
+
+기존의 CCTV 시스템은 주로 **영상 기록 및 사후 확인** 용도로 활용되고 있으며, 상시 모니터링이 이루어지지 않는 환경에서는 **즉각적인 상황 인지와 대응이 어렵다**는 한계를 가진다. 특히 건물 내외부의 사각지대, 야간 시간대, 관리 인력이 상주하지 않는 공간에서는 침입, 쓰러짐, 화재와 같은 응급·비상 상황이 발생하더라도 발견이 지연될 가능성이 크다.
+
+이러한 문제를 해결하기 위해, 최근에는 딥러닝 기반 영상 분석 기술을 활용한 \*\*지능형 CCTV(Intelligent CCTV)\*\*가 주목받고 있다. 지능형 CCTV는 영상 속 객체와 행동을 자동으로 인식하고, 위험 상황을 실시간으로 판단함으로써 보다 능동적인 안전 관리가 가능하다.
+
+<img src="프로젝트+개요_assets/e56badea3943d553e8d9020e2f7c0d625161975e1ec886279d97199e75e11539.jpg" class="confluence-embedded-image image-center" loading="lazy" data-image-src="https://northpard.atlassian.net/wiki/download/attachments/23199795/smoke-and-fire-hero.jpg?version=1&amp;modificationDate=1765960030483&amp;cacheVersion=1&amp;api=v2" data-height="1024" data-width="1024" data-unresolved-comment-count="0" data-linked-resource-id="23298105" data-linked-resource-version="1" data-linked-resource-type="attachment" data-linked-resource-default-alias="smoke-and-fire-hero.jpg" data-base-url="https://northpard.atlassian.net/wiki" data-linked-resource-content-type="image/jpeg" data-linked-resource-container-id="23199795" data-linked-resource-container-version="3" data-media-id="6c98098e-bcd9-4dbd-ad25-4c23ed3af9b0" data-media-type="file" width="250" height="250" />
+
+<img src="https://www.quytech.com/blog/wp-content/uploads/2025/07/intelligent-video-monitoring-systems-development.png" class="confluence-embedded-image confluence-external-resource image-center" data-image-src="https://www.quytech.com/blog/wp-content/uploads/2025/07/intelligent-video-monitoring-systems-development.png" loading="lazy" width="250" />
+
+<img src="https://vidiana.ai/wp-content/uploads/2025/08/AI-CCTV-Camera-2.png" class="confluence-embedded-image confluence-external-resource image-center" data-image-src="https://vidiana.ai/wp-content/uploads/2025/08/AI-CCTV-Camera-2.png" loading="lazy" width="250" />
+
+------------------------------------------------------------------------
+
+## 2. 프로젝트 목적
+
+본 프로젝트의 목적은 **소규모 공간의 사각지대에 설치 가능한 지능형 CCTV 시스템**을 개발하여, 응급 상황 및 비상 상황을 자동으로 감지하고 신속한 대응을 지원하는 것이다.
+
+이를 위해 딥러닝 기반 객체 탐지 기술을 활용하여 CCTV 영상 내 사람과 위험 요소를 실시간으로 인식하고, 사전에 정의된 시나리오에 따라 이상 상황을 판단하는 시스템을 구현한다.
+
+------------------------------------------------------------------------
+
+## 3. 적용 대상 및 활용 시나리오
+
+본 프로젝트는 대규모 관제 센터를 전제로 하지 않고, 다음과 같은 **상시 감시가 어려운 소규모 공간**을 주요 적용 대상으로 한다.
+
+- 건물 출입구 및 복도 사각지대
+
+- 주차장, 계단, 창고 등 관리 인력이 상주하지 않는 공간
+
+- 소규모 상업 시설 및 공공 시설의 제한된 감시 구역
+
+주요 활용 시나리오는 다음과 같다.
+
+- 감시 구역 내 **사람 침입 자동 감지**
+
+- 사람의 **쓰러짐(낙상) 상황 감지**를 통한 응급 대응
+
+- **불꽃·연기 인식 기반 화재 조기 감지**
+
+------------------------------------------------------------------------
+
+## 4. 기술적 접근 방법
+
+본 프로젝트는 구현 난이도와 실용성을 고려하여, **YOLO 기반 객체 탐지 모델**을 중심으로 시스템을 구성한다.
+
+- CCTV 영상 입력
+
+- YOLO를 이용한 실시간 객체 탐지(사람, 불꽃, 연기 등)
+
+- 객체의 위치 및 상태 변화를 기반으로 한 상황 분석
+
+- 침입, 쓰러짐, 화재 등 응급·비상 상황 판단
+
+- 이벤트 발생 시 화면 표시 및 로그 출력
+
+단일 객체 탐지 모델을 기반으로 하되, 프로젝트 진행 상황에 따라 추적 및 행동 분석 기법을 단계적으로 확장할 수 있도록 설계한다.
+
+------------------------------------------------------------------------
+
+## 5. 프로젝트 구성 및 인력 규모
+
+본 프로젝트는 **3인 팀**으로 수행되며, 소규모 팀에서도 구현 가능한 현실적인 범위를 목표로 한다.
+
+- 딥러닝 모델 학습 및 객체 탐지 구현
+
+- 이상 상황 판단 로직 설계
+
+- 실시간 영상 처리 및 시스템 통합
+
+역할 분담을 통해 개발 효율을 높이고, 각 단계별 결과를 통합하여 하나의 동작하는 시스템을 완성한다.
+
+------------------------------------------------------------------------
+
+## 6. 기대 효과
+
+- 사각지대 및 무인 공간에서의 **안전 관리 자동화**
+
+- 응급·비상 상황에 대한 **조기 인지 및 대응 가능성 향상**
+
+- 딥러닝 기반 영상 분석 기술의 실제 적용 경험 확보
+
+- 소규모 환경에서도 적용 가능한 지능형 CCTV 시스템 구현 가능성 검증
+
+------------------------------------------------------------------------
+
+## 7. 결론
+
+본 프로젝트는 딥러닝 기반 객체 탐지 기술을 활용하여, 기존 CCTV의 한계를 보완하는 **지능형 안전 관리 시스템**을 구현하는 것을 목표로 한다. 제한된 인원과 자원 내에서 실현 가능한 구조를 바탕으로, 실제 현장에서 활용 가능한 응급·비상 상황 감지 시스템의 가능성을 확인하고자 한다.
