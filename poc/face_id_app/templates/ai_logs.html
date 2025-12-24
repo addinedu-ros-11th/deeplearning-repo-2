@@ -2,15 +2,16 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8">
-  <title>인식 로그</title>
+  <title>AI 이벤트 로그</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <header>
-    <h1>인식 로그</h1>
+    <h1>AI 이벤트 로그</h1>
     <nav>
       <a href="/">모니터</a>
       <a href="/register">등록</a>
+      <a href="/logs">로그</a>
       <a href="/ai-logs">AI 로그</a>
     </nav>
   </header>
@@ -20,16 +21,20 @@
       <h2>필터</h2>
       <form method="get">
         <label>
-          이름
-          <input type="text" name="name" value="{{ request.args.get('name','') }}">
+          라벨
+          <input type="text" name="label" value="{{ request.args.get('label','') }}">
         </label>
         <label>
-          구분
-          <select name="role">
+          작업
+          <select name="task">
             <option value="">전체</option>
-            <option value="employee" {% if request.args.get('role') == 'employee' %}selected{% endif %}>직원</option>
-            <option value="patient" {% if request.args.get('role') == 'patient' %}selected{% endif %}>환자</option>
+            <option value="detect" {% if request.args.get('task') == 'detect' %}selected{% endif %}>detect</option>
+            <option value="pose" {% if request.args.get('task') == 'pose' %}selected{% endif %}>pose</option>
           </select>
+        </label>
+        <label>
+          소스
+          <input type="text" name="source_id" value="{{ request.args.get('source_id','') }}">
         </label>
         <label>
           시작일시
@@ -48,25 +53,27 @@
       <table>
         <thead>
           <tr>
-            <th>이름</th>
-            <th>구분</th>
-            <th>유사도</th>
-            <th>캡처 경로</th>
+            <th>작업</th>
+            <th>라벨</th>
+            <th>스코어</th>
+            <th>소스</th>
             <th>시각</th>
+            <th>상세</th>
           </tr>
         </thead>
         <tbody>
           {% for row in rows %}
           <tr>
-            <td>{{ row.name }}</td>
-            <td>{{ '직원' if row.role == 'employee' else '환자' }}</td>
-            <td>{{ '%.3f'|format(row.similarity) }}</td>
-            <td>{{ row.image_path or '' }}</td>
+            <td>{{ row.task }}</td>
+            <td>{{ row.label or '' }}</td>
+            <td>{% if row.score is not none %}{{ '%.3f'|format(row.score) }}{% endif %}</td>
+            <td>{{ row.source_id or '' }}</td>
             <td>{{ row.seen_at }}</td>
+            <td>{{ row.payload_json or '' }}</td>
           </tr>
           {% else %}
           <tr>
-            <td colspan="5">기록이 없습니다.</td>
+            <td colspan="6">기록이 없습니다.</td>
           </tr>
           {% endfor %}
         </tbody>
