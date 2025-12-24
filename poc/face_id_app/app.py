@@ -101,6 +101,19 @@ def init_db():
             )
             """
         )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ai_event_logs (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                task VARCHAR(32) NOT NULL,
+                label VARCHAR(128),
+                score FLOAT,
+                source_id VARCHAR(64),
+                payload_json TEXT,
+                seen_at DATETIME NOT NULL
+            )
+            """
+        )
         try:
             cur.execute("ALTER TABLE recognition_logs ADD COLUMN image_path VARCHAR(255)")
         except mysql.connector.Error:
@@ -399,6 +412,49 @@ def logs():
         conn.close()
 
     return render_template("logs.html", rows=rows)
+
+
+@app.route("/ai-logs")
+def ai_logs():
+    label = request.args.get("label", "").strip()
+    task = request.args.get("task", "")
+    source_id = request.args.get("source_id", "").strip()
+    start = request.args.get("start", "")
+    end = request.args.get("end", "")
+
+    query = (
+        "SELECT task, label, score, source_id, payload_json, seen_at "
+        "FROM ai_event_logs WHERE 1=1"
+    )
+    params = []
+
+    if label:
+        query += " AND label LIKE %s"
+        params.append(f"%{label}%")
+    if task in {"detect", "pose"}:
+        query += " AND task = %s"
+        params.append(task)
+    if source_id:
+        query += " AND source_id LIKE %s"
+        params.append(f"%{source_id}%")
+    if start:
+        query += " AND seen_at >= %s"
+        params.append(start)
+    if end:
+        query += " AND seen_at <= %s"
+        params.append(end)
+
+    query += " ORDER BY seen_at DESC LIMIT 200"
+
+    with _db_lock:
+        conn = get_db()
+        cur = conn.cursor(dictionary=True)
+        cur.execute(query, params)
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+
+    return render_template("ai_logs.html", rows=rows)
 
 
 @app.route("/reload")
