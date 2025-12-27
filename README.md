@@ -114,6 +114,14 @@ cd /home/clyde/dev_ws/deeplearning-repo-2/poc/face_id_app
 UDP_VIDEO_TARGETS="<AI_PC_IP:5001>" python app.py
 ```
 
+### Face ID 앱 운영 메모
+- 등록은 "사진 찍기" 또는 사진 업로드로 진행합니다. 등록 페이지에는 웹캠 미리보기와 캡처 미리보기가 있습니다.
+- 미등록 인식 로그는 기본 2초 이상 지속될 때만 기록합니다. 필요 시 `UNKNOWN_MIN_SECONDS` 환경변수로 조정하세요.
+- 이벤트 클립은 브라우저 재생을 위해 저장 후 H.264로 변환됩니다. `ffmpeg`가 필요합니다.
+- 한글 라벨 렌더링을 위해 시스템 폰트(예: NanumGothic)를 사용합니다.
+- `/logs`는 UI에서 제거되었습니다. AI 이벤트는 `/ai-logs`에서 확인하세요.
+- 종료 시 카메라/UDP 리소스를 해제하도록 정리 루틴이 추가되어 있습니다.
+
 ### AI 서버 실행
 ```bash
 cd /home/clyde/dev_ws/deeplearning-repo-2/poc/face_id_app
