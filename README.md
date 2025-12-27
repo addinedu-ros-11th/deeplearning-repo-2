@@ -93,3 +93,33 @@
 ## 7. 결론
 
 본 프로젝트는 딥러닝 기반 객체 탐지 기술을 활용하여, 기존 CCTV의 한계를 보완하는 **지능형 안전 관리 시스템**을 구현하는 것을 목표로 한다. 제한된 인원과 자원 내에서 실현 가능한 구조를 바탕으로, 실제 현장에서 활용 가능한 응급·비상 상황 감지 시스템의 가능성을 확인하고자 한다.
+
+------------------------------------------------------------------------
+
+## 8. 실습 실행 (Face ID + 낙상 추론 연동)
+
+### 구성 요약
+- 관리 PC: 카메라 캡처 + 웹 서버 + DB + UDP 영상 송출 + 이벤트 수신/클립 저장
+- AI 서버(옆 PC): UDP 영상 수신 + YOLO 추론 + 이벤트 전송
+
+### 관리 PC 실행
+```bash
+cd /home/clyde/dev_ws/deeplearning-repo-2/poc/face_id_app
+UDP_VIDEO_TARGETS="<AI_PC_IP:5001>" python app.py
+```
+
+### AI 서버 실행
+```bash
+cd /home/clyde/dev_ws/deeplearning-repo-2/poc/face_id_app
+python udp_video_receiver.py --port 5001 \
+  --task pose \
+  --model /home/clyde/dev_ws/deeplearning-repo-2/src/yolov8n-pose.pt \
+  --report-target <MANAGER_PC_IP:6001> \
+  --source-id cam01 \
+  --report-include-keypoints
+```
+
+### 참고
+- `app.py`가 UDP 영상 송출을 통합했습니다. 별도의 `udp_video_sender.py`는 사용하지 않습니다.
+- 이벤트 수신과 DB 저장도 `app.py`에서 처리합니다. `udp_event_logger.py`는 사용하지 않습니다.
+- 이벤트 발생 시 **4초 전 + 11초 후** 총 15초 클립을 저장하고, `/ai-logs`에서 링크로 확인할 수 있습니다.
