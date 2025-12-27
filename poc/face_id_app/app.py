@@ -100,6 +100,7 @@ _udp_max_payload = None
 _udp_frame_interval = 0.0
 _udp_next_frame_time = 0.0
 _latest_jpeg = None
+_latest_raw_jpeg = None
 _latest_lock = threading.Lock()
 _shutdown_event = threading.Event()
 
@@ -625,6 +626,7 @@ def annotate_frame(frame):
 def camera_loop():
     global _camera
     global _latest_jpeg
+    global _latest_raw_jpeg
     cam = get_camera()
     encode_params = [int(cv2.IMWRITE_JPEG_QUALITY), UDP_JPEG_QUALITY]
     while not _shutdown_event.is_set():
@@ -638,6 +640,10 @@ def camera_loop():
                 cam = get_camera()
             time.sleep(0.2)
             continue
+        ok, raw_buffer = cv2.imencode(".jpg", frame, encode_params)
+        if ok:
+            with _latest_lock:
+                _latest_raw_jpeg = raw_buffer.tobytes()
         try:
             frame = annotate_frame(frame)
         except Exception as exc:
@@ -665,6 +671,18 @@ def generate_frames():
         time.sleep(0.05)
 
 
+def generate_raw_frames():
+    while True:
+        with _latest_lock:
+            jpeg_bytes = _latest_raw_jpeg
+        if jpeg_bytes:
+            yield (
+                b"--frame\r\n"
+                b"Content-Type: image/jpeg\r\n\r\n" + jpeg_bytes + b"\r\n"
+            )
+        time.sleep(0.05)
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -673,6 +691,11 @@ def index():
 @app.route("/video_feed")
 def video_feed():
     return Response(generate_frames(), mimetype="multipart/x-mixed-replace; boundary=frame")
+
+
+@app.route("/video_feed_raw")
+def video_feed_raw():
+    return Response(generate_raw_frames(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
 
 @app.route("/register", methods=["GET", "POST"])
@@ -769,42 +792,6 @@ def serve_capture(filename):
     if not path.exists():
         return "Capture not found", 404
     return send_file(path, mimetype="image/jpeg")
-
-
-@app.route("/logs")
-def logs():
-    name = request.args.get("name", "").strip()
-    role = request.args.get("role", "")
-    start = request.args.get("start", "")
-    end = request.args.get("end", "")
-
-    query = "SELECT name, role, similarity, seen_at FROM recognition_logs WHERE 1=1"
-    params = []
-
-    if name:
-        query += " AND name LIKE %s"
-        params.append(f"%{name}%")
-    if role in {"employee", "patient"}:
-        query += " AND role = %s"
-        params.append(role)
-    if start:
-        query += " AND seen_at >= %s"
-        params.append(start)
-    if end:
-        query += " AND seen_at <= %s"
-        params.append(end)
-
-    query += " ORDER BY seen_at DESC LIMIT 200"
-
-    with _db_lock:
-        conn = get_db()
-        cur = conn.cursor(dictionary=True)
-        cur.execute(query, params)
-        rows = cur.fetchall()
-        cur.close()
-        conn.close()
-
-    return render_template("logs.html", rows=rows)
 
 
 @app.route("/ai-logs")

@@ -2,24 +2,40 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8">
-  <title>Face ID Monitor</title>
+  <title>관심 요양원 - AI 통합 모니터</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <header>
-    <h1>Face ID Monitor</h1>
+    <h1>관심 요양원 - AI 통합 모니터</h1>
     <nav>
       <a href="/" class="{% if request.path == '/' %}active{% endif %}">모니터</a>
       <a href="/register" class="{% if request.path == '/register' %}active{% endif %}">등록</a>
       <a href="/ai-logs" class="{% if request.path == '/ai-logs' %}active{% endif %}">AI 로그</a>
-      <a href="/reload" class="{% if request.path == '/reload' %}active{% endif %}">갤러리 새로고침</a>
     </nav>
   </header>
 
   <main>
-    <section class="video-card">
-      <h2>실시간 웹캠</h2>
-      <img src="/video_feed" alt="Webcam feed" />
+    <section class="video-card monitor-card">
+      <h2>실시간 모니터링</h2>
+      <div class="video-grid">
+        <div class="video-tile">
+          <img src="/video_feed" alt="Face ID feed" />
+          <p class="video-caption">얼굴 식별</p>
+        </div>
+        <div class="video-tile">
+          <img src="/video_feed_raw" alt="Fall detection feed" />
+          <p class="video-caption">넘어짐 감지</p>
+        </div>
+        <div class="video-tile">
+          <img src="/video_feed_raw" alt="Fire detection feed" />
+          <p class="video-caption">화재 감지</p>
+        </div>
+        <div class="video-tile">
+          <img src="/video_feed_raw" alt="Anomaly detection feed" />
+          <p class="video-caption">이상행동 감지</p>
+        </div>
+      </div>
     </section>
   </main>
 </body>

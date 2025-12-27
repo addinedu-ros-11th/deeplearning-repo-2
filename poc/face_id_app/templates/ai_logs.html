@@ -2,17 +2,16 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8">
-  <title>AI 이벤트 로그</title>
+  <title>관심 요양원 - AI 통합 모니터</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <header>
-    <h1>AI 이벤트 로그</h1>
+    <h1>관심 요양원 - AI 통합 모니터</h1>
     <nav>
       <a href="/" class="{% if request.path == '/' %}active{% endif %}">모니터</a>
       <a href="/register" class="{% if request.path == '/register' %}active{% endif %}">등록</a>
       <a href="/ai-logs" class="{% if request.path == '/ai-logs' %}active{% endif %}">AI 로그</a>
-      <a href="/reload" class="{% if request.path == '/reload' %}active{% endif %}">갤러리 새로고침</a>
     </nav>
   </header>
 

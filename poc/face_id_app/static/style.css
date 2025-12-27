@@ -52,11 +52,52 @@ main {
 
 .video-card img {
   width: 100%;
-  max-width: 480px;
   aspect-ratio: 16 / 9;
   object-fit: cover;
   border-radius: 12px;
   border: 1px solid #dce2ee;
+}
+
+.video-card {
+  width: 100%;
+}
+
+.video-card.narrow {
+  max-width: 480px;
+}
+
+.video-grid {
+  display: inline-grid;
+  grid-template-columns: repeat(2, 480px);
+  gap: 20px;
+  justify-content: start;
+  justify-items: start;
+  align-items: start;
+  margin: 0;
+}
+
+.monitor-card {
+  display: inline-block;
+  width: 1020px;
+  max-width: 100%;
+}
+
+.video-tile img {
+  width: 480px;
+  max-width: 100%;
+}
+
+.video-caption {
+  margin: 8px 4px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1d2330;
+}
+
+@media (max-width: 900px) {
+  .video-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 form {
