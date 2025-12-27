@@ -2,25 +2,20 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8">
-  <title>인물 등록</title>
+  <title>관심 요양원 - AI 통합 모니터</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <header>
-    <h1>인물 등록</h1>
+    <h1>관심 요양원 - AI 통합 모니터</h1>
     <nav>
       <a href="/" class="{% if request.path == '/' %}active{% endif %}">모니터</a>
       <a href="/register" class="{% if request.path == '/register' %}active{% endif %}">등록</a>
       <a href="/ai-logs" class="{% if request.path == '/ai-logs' %}active{% endif %}">AI 로그</a>
-      <a href="/reload" class="{% if request.path == '/reload' %}active{% endif %}">갤러리 새로고침</a>
     </nav>
   </header>
 
   <main>
-    <section class="video-card">
-      <h2>웹캠 미리보기</h2>
-      <img src="/video_feed" alt="Webcam feed" />
-    </section>
     <section class="form-card">
       <h2>등록 정보 입력</h2>
       {% if error %}
@@ -42,6 +37,10 @@
             <option value="patient">환자</option>
           </select>
         </label>
+        <section class="video-card narrow">
+          <h2>웹캠 미리보기</h2>
+          <img src="/video_feed" alt="Webcam feed" />
+        </section>
         <input type="hidden" name="capture_filename" id="capture_filename">
         <div class="form-row">
           <button type="button" id="capture-btn">사진 찍기</button>
