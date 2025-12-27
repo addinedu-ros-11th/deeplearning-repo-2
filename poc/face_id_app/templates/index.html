@@ -9,10 +9,10 @@
   <header>
     <h1>Face ID Monitor</h1>
     <nav>
-      <a href="/register">등록</a>
-      <a href="/logs">로그</a>
-      <a href="/ai-logs">AI 로그</a>
-      <a href="/reload">갤러리 새로고침</a>
+      <a href="/" class="{% if request.path == '/' %}active{% endif %}">모니터</a>
+      <a href="/register" class="{% if request.path == '/register' %}active{% endif %}">등록</a>
+      <a href="/ai-logs" class="{% if request.path == '/ai-logs' %}active{% endif %}">AI 로그</a>
+      <a href="/reload" class="{% if request.path == '/reload' %}active{% endif %}">갤러리 새로고침</a>
     </nav>
   </header>
 

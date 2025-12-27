@@ -9,19 +9,24 @@
   <header>
     <h1>인물 등록</h1>
     <nav>
-      <a href="/">모니터</a>
-      <a href="/logs">로그</a>
-      <a href="/ai-logs">AI 로그</a>
+      <a href="/" class="{% if request.path == '/' %}active{% endif %}">모니터</a>
+      <a href="/register" class="{% if request.path == '/register' %}active{% endif %}">등록</a>
+      <a href="/ai-logs" class="{% if request.path == '/ai-logs' %}active{% endif %}">AI 로그</a>
+      <a href="/reload" class="{% if request.path == '/reload' %}active{% endif %}">갤러리 새로고침</a>
     </nav>
   </header>
 
   <main>
+    <section class="video-card">
+      <h2>웹캠 미리보기</h2>
+      <img src="/video_feed" alt="Webcam feed" />
+    </section>
     <section class="form-card">
       <h2>등록 정보 입력</h2>
       {% if error %}
       <p class="error">{{ error }}</p>
       {% endif %}
-      <form method="post">
+      <form method="post" enctype="multipart/form-data">
         <label>
           이름
           <input type="text" name="name" required>
@@ -37,10 +42,47 @@
             <option value="patient">환자</option>
           </select>
         </label>
-        <button type="submit">웹캠에서 등록</button>
+        <input type="hidden" name="capture_filename" id="capture_filename">
+        <div class="form-row">
+          <button type="button" id="capture-btn">사진 찍기</button>
+          <span class="hint" id="capture-status">캡처 후 등록하세요.</span>
+        </div>
+        <div class="form-row">
+          <label>
+            사진 업로드
+            <input type="file" name="image_file" accept="image/*">
+          </label>
+        </div>
+        <div class="form-row">
+          <img id="capture-preview" alt="캡처 미리보기" />
+        </div>
+        <button type="submit">등록</button>
       </form>
-      <p class="hint">등록 버튼을 누르면 현재 웹캠 화면에서 얼굴을 추출합니다.</p>
+      <p class="hint">사진을 찍거나 업로드한 뒤 등록하세요.</p>
     </section>
   </main>
+  <script>
+    const captureBtn = document.getElementById("capture-btn");
+    const captureFilename = document.getElementById("capture_filename");
+    const captureStatus = document.getElementById("capture-status");
+    const capturePreview = document.getElementById("capture-preview");
+
+    captureBtn.addEventListener("click", async () => {
+      captureStatus.textContent = "캡처 중...";
+      try {
+        const response = await fetch("/capture_frame", { method: "POST" });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || "capture_failed");
+        }
+        captureFilename.value = data.filename;
+        capturePreview.src = data.url + "?t=" + Date.now();
+        capturePreview.style.display = "block";
+        captureStatus.textContent = "캡처 완료. 등록 버튼을 누르세요.";
+      } catch (err) {
+        captureStatus.textContent = "캡처 실패. 웹캠 상태를 확인하세요.";
+      }
+    });
+  </script>
 </body>
 </html>
