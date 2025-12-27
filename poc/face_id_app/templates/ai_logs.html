@@ -58,6 +58,7 @@
             <th>스코어</th>
             <th>소스</th>
             <th>시각</th>
+            <th>영상</th>
             <th>상세</th>
           </tr>
         </thead>
@@ -69,6 +70,11 @@
             <td>{% if row.score is not none %}{{ '%.3f'|format(row.score) }}{% endif %}</td>
             <td>{{ row.source_id or '' }}</td>
             <td>{{ row.seen_at }}</td>
+            <td>
+              {% if row.video_path %}
+              <a href="{{ url_for('serve_clip', filename=row.video_path) }}" target="_blank">보기</a>
+              {% endif %}
+            </td>
             <td>{{ row.payload_json or '' }}</td>
           </tr>
           {% else %}

@@ -1,20 +1,27 @@
+import json
+import os
+import socket
+import struct
 import threading
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
+from collections import deque
 
 import cv2
 import mysql.connector
 import numpy as np
-from flask import Flask, Response, redirect, render_template, request, url_for
+from flask import Flask, Response, redirect, render_template, request, send_from_directory, url_for
 from insightface.app import FaceAnalysis
 
 
 APP_DIR = Path(__file__).resolve().parent
 DATA_DIR = APP_DIR / "data" / "face_registry"
 LOG_DIR = APP_DIR / "data" / "face_logs"
+CLIP_DIR = APP_DIR / "data" / "event_clips"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 LOG_DIR.mkdir(parents=True, exist_ok=True)
+CLIP_DIR.mkdir(parents=True, exist_ok=True)
 
 DB_CONFIG = {
     "host": "localhost",
@@ -38,6 +45,21 @@ LOG_DEDUP_SECONDS = 2
 REGISTER_FRAME_COUNT = 5
 REGISTER_FRAME_DELAY = 0.2
 
+EVENT_UDP_BIND = "0.0.0.0"
+EVENT_UDP_PORT = 6001
+FALL_LABEL_KEYWORDS = {"fall", "fallen", "lying"}
+CLIP_PRE_SECONDS = 4
+CLIP_POST_SECONDS = 11
+CLIP_COOLDOWN_SECONDS = 8
+CAMERA_SOURCE = os.getenv("CAMERA_SOURCE", "0")
+UDP_VIDEO_TARGETS = os.getenv("UDP_VIDEO_TARGETS", "")
+UDP_JPEG_QUALITY = int(os.getenv("UDP_JPEG_QUALITY", "80"))
+UDP_MAX_DATAGRAM = int(os.getenv("UDP_MAX_DATAGRAM", "1400"))
+UDP_FPS = float(os.getenv("UDP_FPS", "0"))
+
+UDP_HEADER_FORMAT = "!IHH"
+UDP_HEADER_SIZE = struct.calcsize(UDP_HEADER_FORMAT)
+
 COLOR_EMPLOYEE = (255, 0, 0)
 COLOR_PATIENT = (255, 255, 255)
 COLOR_UNKNOWN = (0, 0, 255)
@@ -47,17 +69,162 @@ app = Flask(__name__)
 _db_lock = threading.Lock()
 _camera_lock = threading.Lock()
 _camera = None
+_camera_source = None
 
 _gallery_lock = threading.Lock()
 _gallery_embeddings = None
 _gallery_meta = None
 _last_log = {}
+_clip_recorder = None
+_udp_sock = None
+_udp_targets = None
+_udp_frame_id = 0
+_udp_max_payload = None
+_udp_frame_interval = 0.0
+_udp_next_frame_time = 0.0
 
 
 class Gallery:
     def __init__(self, embeddings, meta):
         self.embeddings = embeddings
         self.meta = meta
+
+
+class ClipRecorder:
+    def __init__(self, pre_seconds, post_seconds):
+        self.pre_seconds = pre_seconds
+        self.post_seconds = post_seconds
+        self.buffer = deque()
+        self.lock = threading.Lock()
+        self.active = None
+        self.last_trigger = None
+
+    def add_frame(self, frame):
+        now = time.time()
+        with self.lock:
+            self.buffer.append((now, frame.copy()))
+            self._trim_buffer(now)
+            if self.active:
+                self._write_frame(now, frame)
+                if now >= self.active["end_time"]:
+                    self._finalize_clip()
+
+    def trigger(self, row_id, label, source_id):
+        now = time.time()
+        with self.lock:
+            if self.active:
+                return
+            if self.last_trigger and now - self.last_trigger < CLIP_COOLDOWN_SECONDS:
+                return
+            self.last_trigger = now
+
+            filename = self._build_filename(label, source_id, now)
+            path = CLIP_DIR / filename
+            self.active = {
+                "row_id": row_id,
+                "path": path,
+                "writer": None,
+                "end_time": now + self.post_seconds,
+            }
+
+            pre_frames = [f for ts, f in self.buffer if ts >= now - self.pre_seconds]
+            for pre_frame in pre_frames:
+                self._write_frame(now, pre_frame)
+
+    def _build_filename(self, label, source_id, timestamp):
+        safe_label = (label or "event").replace(" ", "_")
+        safe_source = (source_id or "cam").replace(" ", "_")
+        dt = datetime.fromtimestamp(timestamp).strftime("%Y%m%d_%H%M%S")
+        return f"{safe_source}_{safe_label}_{dt}.mp4"
+
+    def _trim_buffer(self, now):
+        cutoff = now - (self.pre_seconds + 1)
+        while self.buffer and self.buffer[0][0] < cutoff:
+            self.buffer.popleft()
+
+    def _write_frame(self, _now, frame):
+        if not self.active:
+            return
+        writer = self.active["writer"]
+        if writer is None:
+            height, width = frame.shape[:2]
+            writer = cv2.VideoWriter(
+                str(self.active["path"]),
+                cv2.VideoWriter_fourcc(*"mp4v"),
+                10,
+                (width, height),
+            )
+            self.active["writer"] = writer
+        writer.write(frame)
+
+    def _finalize_clip(self):
+        writer = self.active.get("writer")
+        if writer:
+            writer.release()
+        row_id = self.active.get("row_id")
+        path = self.active.get("path")
+        self.active = None
+        if row_id and path:
+            self._update_event_path(row_id, path)
+
+    def _update_event_path(self, row_id, path):
+        with _db_lock:
+            conn = get_db()
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE ai_event_logs SET video_path = %s WHERE id = %s",
+                (path.name, row_id),
+            )
+            cur.close()
+            conn.close()
+
+
+def parse_udp_targets(value):
+    targets = []
+    for item in value.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        host, port_str = item.rsplit(":", 1)
+        targets.append((host, int(port_str)))
+    return targets
+
+
+def init_udp_sender():
+    global _udp_sock, _udp_targets, _udp_max_payload, _udp_frame_interval, _udp_next_frame_time
+    if not UDP_VIDEO_TARGETS:
+        return
+    _udp_targets = parse_udp_targets(UDP_VIDEO_TARGETS)
+    if not _udp_targets:
+        return
+    _udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    _udp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1 << 20)
+    _udp_max_payload = max(1, UDP_MAX_DATAGRAM - UDP_HEADER_SIZE)
+    _udp_frame_interval = 1.0 / UDP_FPS if UDP_FPS > 0 else 0.0
+    _udp_next_frame_time = time.monotonic()
+
+
+def udp_send_frame(jpeg_bytes):
+    global _udp_frame_id, _udp_next_frame_time
+    if _udp_sock is None:
+        return
+
+    if _udp_frame_interval:
+        now = time.monotonic()
+        if now < _udp_next_frame_time:
+            return
+        _udp_next_frame_time = now + _udp_frame_interval
+
+    total_chunks = (len(jpeg_bytes) + _udp_max_payload - 1) // _udp_max_payload
+    for chunk_id in range(total_chunks):
+        start = chunk_id * _udp_max_payload
+        end = start + _udp_max_payload
+        header = struct.pack(UDP_HEADER_FORMAT, _udp_frame_id, chunk_id, total_chunks)
+        packet = header + jpeg_bytes[start:end]
+        for target in _udp_targets:
+            _udp_sock.sendto(packet, target)
+
+    _udp_frame_id = (_udp_frame_id + 1) & 0xFFFFFFFF
 
 
 face_app = FaceAnalysis(name=MODEL_NAME, providers=["CPUExecutionProvider"])
@@ -110,6 +277,7 @@ def init_db():
                 score FLOAT,
                 source_id VARCHAR(64),
                 payload_json TEXT,
+                video_path VARCHAR(255),
                 seen_at DATETIME NOT NULL
             )
             """
@@ -118,15 +286,22 @@ def init_db():
             cur.execute("ALTER TABLE recognition_logs ADD COLUMN image_path VARCHAR(255)")
         except mysql.connector.Error:
             pass
+        try:
+            cur.execute("ALTER TABLE ai_event_logs ADD COLUMN video_path VARCHAR(255)")
+        except mysql.connector.Error:
+            pass
         cur.close()
         conn.close()
 
 
 def get_camera():
     global _camera
+    global _camera_source
     with _camera_lock:
+        if _camera_source is None:
+            _camera_source = int(CAMERA_SOURCE) if CAMERA_SOURCE.isdigit() else CAMERA_SOURCE
         if _camera is None or not _camera.isOpened():
-            _camera = cv2.VideoCapture(0)
+            _camera = cv2.VideoCapture(_camera_source)
         return _camera
 
 
@@ -292,7 +467,11 @@ def generate_frames():
         if not ret:
             break
         frame = annotate_frame(frame)
-        _, buffer = cv2.imencode(".jpg", frame)
+        if _clip_recorder:
+            _clip_recorder.add_frame(frame)
+        encode_params = [int(cv2.IMWRITE_JPEG_QUALITY), UDP_JPEG_QUALITY]
+        _, buffer = cv2.imencode(".jpg", frame, encode_params)
+        udp_send_frame(buffer.tobytes())
         yield (
             b"--frame\r\n"
             b"Content-Type: image/jpeg\r\n\r\n" + buffer.tobytes() + b"\r\n"
@@ -423,7 +602,7 @@ def ai_logs():
     end = request.args.get("end", "")
 
     query = (
-        "SELECT task, label, score, source_id, payload_json, seen_at "
+        "SELECT task, label, score, source_id, payload_json, seen_at, video_path "
         "FROM ai_event_logs WHERE 1=1"
     )
     params = []
@@ -463,7 +642,70 @@ def reload_gallery():
     return redirect(url_for("index"))
 
 
+@app.route("/clips/<path:filename>")
+def serve_clip(filename):
+    return send_from_directory(CLIP_DIR, filename, as_attachment=False)
+
+
+def is_fall_event(label):
+    if not label:
+        return False
+    lower = label.lower()
+    return any(keyword in lower for keyword in FALL_LABEL_KEYWORDS)
+
+
+def event_listener():
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind((EVENT_UDP_BIND, EVENT_UDP_PORT))
+    try:
+        while True:
+            data, _addr = sock.recvfrom(65535)
+            try:
+                payload = json.loads(data.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                continue
+
+            task = payload.get("task", "")
+            source_id = payload.get("source_id") or None
+            events = payload.get("events") or []
+            if not events:
+                continue
+
+            now = datetime.now()
+            with _db_lock:
+                conn = get_db()
+                cur = conn.cursor()
+                for event in events:
+                    label = event.get("label")
+                    score = event.get("score")
+                    cur.execute(
+                        """
+                        INSERT INTO ai_event_logs (task, label, score, source_id, payload_json, seen_at)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            task,
+                            label,
+                            score,
+                            source_id,
+                            json.dumps(event, ensure_ascii=True),
+                            now,
+                        ),
+                    )
+                    row_id = cur.lastrowid
+                    if is_fall_event(label) and _clip_recorder:
+                        _clip_recorder.trigger(row_id, label, source_id)
+                cur.close()
+                conn.close()
+    finally:
+        sock.close()
+
+
 if __name__ == "__main__":
+    _clip_recorder = ClipRecorder(CLIP_PRE_SECONDS, CLIP_POST_SECONDS)
+    listener = threading.Thread(target=event_listener, daemon=True)
+    listener.start()
+    init_udp_sender()
     init_db()
     refresh_gallery()
     app.run(host="0.0.0.0", port=5000, debug=True)
