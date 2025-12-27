@@ -51,6 +51,7 @@ FALL_LABEL_KEYWORDS = {"fall", "fallen", "lying"}
 CLIP_PRE_SECONDS = 4
 CLIP_POST_SECONDS = 11
 CLIP_COOLDOWN_SECONDS = 8
+UNKNOWN_LOG_DEDUP_SECONDS = 5
 CAMERA_SOURCE = os.getenv("CAMERA_SOURCE", "0")
 UDP_VIDEO_TARGETS = os.getenv("UDP_VIDEO_TARGETS", "")
 UDP_JPEG_QUALITY = int(os.getenv("UDP_JPEG_QUALITY", "80"))
@@ -75,6 +76,7 @@ _gallery_lock = threading.Lock()
 _gallery_embeddings = None
 _gallery_meta = None
 _last_log = {}
+_last_unknown_log = None
 _clip_recorder = None
 _udp_sock = None
 _udp_targets = None
@@ -433,6 +435,59 @@ def maybe_log_recognition(person, similarity, frame, bbox):
     _last_log[person["id"]] = now
 
 
+def log_unknown_event(similarity, frame, bbox):
+    global _last_unknown_log
+    now = datetime.now()
+    if _last_unknown_log and now - _last_unknown_log < timedelta(seconds=UNKNOWN_LOG_DEDUP_SECONDS):
+        return None
+
+    x1, y1, x2, y2 = [int(v) for v in bbox]
+    x1 = max(0, x1)
+    y1 = max(0, y1)
+    x2 = min(frame.shape[1], x2)
+    y2 = min(frame.shape[0], y2)
+    face_crop = frame[y1:y2, x1:x2]
+
+    image_path = None
+    if face_crop.size:
+        timestamp = now.strftime("%Y%m%d_%H%M%S_%f")
+        filename = f"unknown_{timestamp}.jpg"
+        image_path = LOG_DIR / filename
+        cv2.imwrite(str(image_path), face_crop)
+
+    payload = {
+        "label": "unknown",
+        "score": float(similarity),
+        "bbox": [float(v) for v in bbox],
+        "image_path": str(image_path) if image_path else None,
+    }
+
+    row_id = None
+    with _db_lock:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO ai_event_logs (task, label, score, source_id, payload_json, seen_at)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (
+                "intruder",
+                "unknown",
+                similarity,
+                "face_id",
+                json.dumps(payload, ensure_ascii=True),
+                now,
+            ),
+        )
+        row_id = cur.lastrowid
+        cur.close()
+        conn.close()
+
+    _last_unknown_log = now
+    return row_id
+
+
 def annotate_frame(frame):
     faces = face_app.get(frame)
     embeddings, meta = get_gallery()
@@ -441,6 +496,9 @@ def annotate_frame(frame):
         person, similarity = best_match(face.embedding, embeddings, meta)
         if person is None or similarity < SIM_THRESHOLD:
             draw_label(frame, face.bbox, "외부인", COLOR_UNKNOWN, (255, 255, 255))
+            row_id = log_unknown_event(similarity, frame, face.bbox)
+            if row_id and _clip_recorder:
+                _clip_recorder.trigger(row_id, "unknown", "face_id")
             continue
 
         if person["role"] == "employee":
