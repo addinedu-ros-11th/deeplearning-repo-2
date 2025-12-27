@@ -102,6 +102,12 @@
 - 관리 PC: 카메라 캡처 + 웹 서버 + DB + UDP 영상 송출 + 이벤트 수신/클립 저장
 - AI 서버(옆 PC): UDP 영상 수신 + YOLO 추론 + 이벤트 전송
 
+### 네트워크 전제
+- 관리 PC/AI 서버 IP는 환경에 따라 바뀔 수 있습니다.
+- 실행 전 각 PC에서 IP를 확인하세요:
+  - `ip -4 addr` 또는 `nmcli -g IP4.ADDRESS dev show`
+- 방화벽에서 UDP 포트(예: 5001, 6001)가 열려 있어야 합니다.
+
 ### 관리 PC 실행
 ```bash
 cd /home/clyde/dev_ws/deeplearning-repo-2/poc/face_id_app
@@ -118,6 +124,10 @@ python udp_video_receiver.py --port 5001 \
   --source-id cam01 \
   --report-include-keypoints
 ```
+
+### 결과 확인
+- 관리 PC에서 `/ai-logs` 페이지를 열면 AI 서버의 추론 결과가 저장되어 표시됩니다.
+- 이벤트 발생 시 15초 클립이 저장되고, `/ai-logs`에서 링크로 확인할 수 있습니다.
 
 ### 참고
 - `app.py`가 UDP 영상 송출을 통합했습니다. 별도의 `udp_video_sender.py`는 사용하지 않습니다.
