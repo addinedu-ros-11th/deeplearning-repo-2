@@ -93,3 +93,51 @@
 ## 7. 결론
 
 본 프로젝트는 딥러닝 기반 객체 탐지 기술을 활용하여, 기존 CCTV의 한계를 보완하는 **지능형 안전 관리 시스템**을 구현하는 것을 목표로 한다. 제한된 인원과 자원 내에서 실현 가능한 구조를 바탕으로, 실제 현장에서 활용 가능한 응급·비상 상황 감지 시스템의 가능성을 확인하고자 한다.
+
+------------------------------------------------------------------------
+
+## 8. 실습 실행 (Face ID + 낙상 추론 연동)
+
+### 구성 요약
+- 관리 PC: 카메라 캡처 + 웹 서버 + DB + UDP 영상 송출 + 이벤트 수신/클립 저장
+- AI 서버(옆 PC): UDP 영상 수신 + YOLO 추론 + 이벤트 전송
+
+### 네트워크 전제
+- 관리 PC/AI 서버 IP는 환경에 따라 바뀔 수 있습니다.
+- 실행 전 각 PC에서 IP를 확인하세요:
+  - `ip -4 addr` 또는 `nmcli -g IP4.ADDRESS dev show`
+- 방화벽에서 UDP 포트(예: 5001, 6001)가 열려 있어야 합니다.
+
+### 관리 PC 실행
+```bash
+cd /home/clyde/dev_ws/deeplearning-repo-2/poc/face_id_app
+UDP_VIDEO_TARGETS="<AI_PC_IP:5001>" python app.py
+```
+
+### Face ID 앱 운영 메모
+- 등록은 "사진 찍기" 또는 사진 업로드로 진행합니다. 등록 페이지에는 웹캠 미리보기와 캡처 미리보기가 있습니다.
+- 미등록 인식 로그는 기본 2초 이상 지속될 때만 기록합니다. 필요 시 `UNKNOWN_MIN_SECONDS` 환경변수로 조정하세요.
+- 이벤트 클립은 브라우저 재생을 위해 저장 후 H.264로 변환됩니다. `ffmpeg`가 필요합니다.
+- 한글 라벨 렌더링을 위해 시스템 폰트(예: NanumGothic)를 사용합니다.
+- `/logs`는 UI에서 제거되었습니다. AI 이벤트는 `/ai-logs`에서 확인하세요.
+- 종료 시 카메라/UDP 리소스를 해제하도록 정리 루틴이 추가되어 있습니다.
+
+### AI 서버 실행
+```bash
+cd /home/clyde/dev_ws/deeplearning-repo-2/poc/face_id_app
+python udp_video_receiver.py --port 5001 \
+  --task pose \
+  --model /home/clyde/dev_ws/deeplearning-repo-2/src/yolov8n-pose.pt \
+  --report-target <MANAGER_PC_IP:6001> \
+  --source-id cam01 \
+  --report-include-keypoints
+```
+
+### 결과 확인
+- 관리 PC에서 `/ai-logs` 페이지를 열면 AI 서버의 추론 결과가 저장되어 표시됩니다.
+- 이벤트 발생 시 15초 클립이 저장되고, `/ai-logs`에서 링크로 확인할 수 있습니다.
+
+### 참고
+- `app.py`가 UDP 영상 송출을 통합했습니다. 별도의 `udp_video_sender.py`는 사용하지 않습니다.
+- 이벤트 수신과 DB 저장도 `app.py`에서 처리합니다. `udp_event_logger.py`는 사용하지 않습니다.
+- 이벤트 발생 시 **4초 전 + 11초 후** 총 15초 클립을 저장하고, `/ai-logs`에서 링크로 확인할 수 있습니다.
