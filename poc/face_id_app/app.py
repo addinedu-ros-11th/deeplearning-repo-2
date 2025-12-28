@@ -53,13 +53,20 @@ REGISTER_FRAME_DELAY = 0.2
 
 EVENT_UDP_BIND = "0.0.0.0"
 EVENT_UDP_PORT = 6001
-FALL_LABEL_KEYWORDS = {"fall", "fallen", "lying"}
+FALL_LABEL_KEYWORDS = {"fall", "fallen", "lying", "laying"}
 CLIP_PRE_SECONDS = 4
 CLIP_POST_SECONDS = 11
 CLIP_COOLDOWN_SECONDS = 8
 UNKNOWN_LOG_DEDUP_SECONDS = 5
+FALL_LOG_DEDUP_SECONDS = 5
 UNKNOWN_MIN_SECONDS = float(os.getenv("UNKNOWN_MIN_SECONDS", "2.0"))
 CAMERA_SOURCE = os.getenv("CAMERA_SOURCE", "0")
+FALL_MODEL_PATH = os.getenv(
+    "FALL_MODEL_PATH",
+    "/home/clyde/dev_ws/deeplearning-repo-2/runs/train/cctv_fall_laying_pose_v8n/weights/best.pt",
+)
+FALL_CONF = float(os.getenv("FALL_CONF", "0.25"))
+FALL_FPS = float(os.getenv("FALL_FPS", "5.0"))
 UDP_VIDEO_TARGETS = os.getenv("UDP_VIDEO_TARGETS", "")
 UDP_JPEG_QUALITY = int(os.getenv("UDP_JPEG_QUALITY", "80"))
 UDP_MAX_DATAGRAM = int(os.getenv("UDP_MAX_DATAGRAM", "1400"))
@@ -91,8 +98,10 @@ _gallery_embeddings = None
 _gallery_meta = None
 _last_log = {}
 _last_unknown_log = None
+_last_fall_log = None
 _unknown_since = None
 _clip_recorder = None
+_fall_clip_recorder = None
 _udp_sock = None
 _udp_targets = None
 _udp_frame_id = 0
@@ -101,8 +110,12 @@ _udp_frame_interval = 0.0
 _udp_next_frame_time = 0.0
 _latest_jpeg = None
 _latest_raw_jpeg = None
+_latest_fall_jpeg = None
 _latest_lock = threading.Lock()
 _shutdown_event = threading.Event()
+_fall_model = None
+_fall_model_error = None
+_fall_lock = threading.Lock()
 
 
 class Gallery:
@@ -582,6 +595,41 @@ def log_unknown_event(similarity, frame, bbox):
     return row_id
 
 
+def log_fall_event(label, score, boxes):
+    global _last_fall_log
+    now = datetime.now()
+    if _last_fall_log and now - _last_fall_log < timedelta(seconds=FALL_LOG_DEDUP_SECONDS):
+        return None
+    payload = {
+        "label": label,
+        "score": float(score),
+        "boxes": boxes,
+    }
+    row_id = None
+    with _db_lock:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO ai_event_logs (task, label, score, source_id, payload_json, seen_at)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (
+                "pose",
+                label,
+                float(score),
+                "fall_cam",
+                json.dumps(payload, ensure_ascii=True),
+                now,
+            ),
+        )
+        row_id = cur.lastrowid
+        cur.close()
+        conn.close()
+    _last_fall_log = now
+    return row_id
+
+
 def annotate_frame(frame):
     global _unknown_since
     faces = face_app.get(frame)
@@ -623,6 +671,79 @@ def annotate_frame(frame):
     return frame
 
 
+def get_fall_model():
+    global _fall_model, _fall_model_error
+    with _fall_lock:
+        if _fall_model is not None or _fall_model_error:
+            return _fall_model
+        try:
+            from ultralytics import YOLO
+        except Exception as exc:
+            _fall_model_error = exc
+            print(f"[fall] ultralytics import failed: {exc}")
+            return None
+        model_path = Path(FALL_MODEL_PATH)
+        if not model_path.exists():
+            _fall_model_error = f"missing model: {model_path}"
+            print(f"[fall] model not found: {model_path}")
+            return None
+        _fall_model = YOLO(str(model_path))
+        return _fall_model
+
+
+def annotate_fall_frame(frame):
+    model = get_fall_model()
+    if model is None:
+        return frame
+    results = model.predict(frame, conf=FALL_CONF, verbose=False)
+    if not results:
+        return frame
+    res = results[0]
+    annotated = res.plot()
+    try:
+        names = res.names or {}
+        fall_found = False
+        fall_label = None
+        fall_score = None
+        fall_boxes = []
+        if res.boxes is not None and res.boxes.cls is not None:
+            cls_list = res.boxes.cls.tolist()
+            conf_list = res.boxes.conf.tolist() if res.boxes.conf is not None else [None] * len(cls_list)
+            xyxy_list = res.boxes.xyxy.tolist() if res.boxes.xyxy is not None else []
+            for idx, cls_id in enumerate(cls_list):
+                label = names.get(int(cls_id), str(int(cls_id)))
+                score = conf_list[idx] if idx < len(conf_list) else None
+                if idx < len(xyxy_list):
+                    x1, y1, x2, y2 = xyxy_list[idx]
+                    fall_boxes.append([float(x1), float(y1), float(x2), float(y2)])
+                if is_fall_event(label):
+                    fall_found = True
+                    if fall_score is None or (score is not None and score > fall_score):
+                        fall_score = score
+                        fall_label = label
+        if fall_found:
+            cv2.putText(
+                annotated,
+                "낙상 감지",
+                (10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.9,
+                (0, 0, 255),
+                2,
+                cv2.LINE_AA,
+            )
+            if fall_label is None:
+                fall_label = "fall"
+            if fall_score is None:
+                fall_score = 0.0
+            row_id = log_fall_event(fall_label, fall_score, fall_boxes)
+            if row_id and _fall_clip_recorder:
+                _fall_clip_recorder.trigger(row_id, fall_label, "fall_cam")
+    except Exception as exc:
+        print(f"[fall] label overlay failed: {exc}")
+    return annotated
+
+
 def camera_loop():
     global _camera
     global _latest_jpeg
@@ -659,6 +780,37 @@ def camera_loop():
             _latest_jpeg = jpeg_bytes
 
 
+def fall_loop():
+    global _latest_fall_jpeg
+    interval = 1.0 / FALL_FPS if FALL_FPS > 0 else 0.0
+    encode_params = [int(cv2.IMWRITE_JPEG_QUALITY), UDP_JPEG_QUALITY]
+    while not _shutdown_event.is_set():
+        start = time.time()
+        with _latest_lock:
+            raw_bytes = _latest_raw_jpeg
+        if not raw_bytes:
+            time.sleep(0.1)
+            continue
+        image = np.frombuffer(raw_bytes, np.uint8)
+        frame = cv2.imdecode(image, cv2.IMREAD_COLOR)
+        if frame is None:
+            time.sleep(0.1)
+            continue
+        try:
+            frame = annotate_fall_frame(frame)
+        except Exception as exc:
+            print(f"[fall] annotate failed: {exc}")
+        if _fall_clip_recorder:
+            _fall_clip_recorder.add_frame(frame)
+        ok, buffer = cv2.imencode(".jpg", frame, encode_params)
+        if ok:
+            with _latest_lock:
+                _latest_fall_jpeg = buffer.tobytes()
+        elapsed = time.time() - start
+        if interval > 0:
+            time.sleep(max(0.0, interval - elapsed))
+
+
 def generate_frames():
     while True:
         with _latest_lock:
@@ -683,6 +835,18 @@ def generate_raw_frames():
         time.sleep(0.05)
 
 
+def generate_fall_frames():
+    while True:
+        with _latest_lock:
+            jpeg_bytes = _latest_fall_jpeg
+        if jpeg_bytes:
+            yield (
+                b"--frame\r\n"
+                b"Content-Type: image/jpeg\r\n\r\n" + jpeg_bytes + b"\r\n"
+            )
+        time.sleep(0.05)
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -696,6 +860,11 @@ def video_feed():
 @app.route("/video_feed_raw")
 def video_feed_raw():
     return Response(generate_raw_frames(), mimetype="multipart/x-mixed-replace; boundary=frame")
+
+
+@app.route("/video_feed_fall")
+def video_feed_fall():
+    return Response(generate_fall_frames(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
 
 @app.route("/register", methods=["GET", "POST"])
@@ -916,11 +1085,14 @@ def event_listener():
 
 if __name__ == "__main__":
     _clip_recorder = ClipRecorder(CLIP_PRE_SECONDS, CLIP_POST_SECONDS)
+    _fall_clip_recorder = ClipRecorder(CLIP_PRE_SECONDS, CLIP_POST_SECONDS)
     listener = threading.Thread(target=event_listener, daemon=True)
     listener.start()
     init_udp_sender()
     camera_thread = threading.Thread(target=camera_loop, daemon=True)
     camera_thread.start()
+    fall_thread = threading.Thread(target=fall_loop, daemon=True)
+    fall_thread.start()
     init_db()
     refresh_gallery()
     def _shutdown_cleanup():
