@@ -125,7 +125,6 @@ UDP_VIDEO_TARGETS="<AI_PC_IP:5001>" python app.py
 ### AI 서버 실행
 ```bash
 cd /home/clyde/dev_ws/deeplearning-repo-2/poc/face_id_app
-python udp_video_receiver.py --port 5001 \
   --task pose \
   --model /home/clyde/dev_ws/deeplearning-repo-2/src/yolov8n-pose.pt \
   --report-target <MANAGER_PC_IP:6001> \
