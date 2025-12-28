@@ -10,11 +10,11 @@
 
 이러한 문제를 해결하기 위해, 최근에는 딥러닝 기반 영상 분석 기술을 활용한 \*\*지능형 CCTV(Intelligent CCTV)\*\*가 주목받고 있다. 지능형 CCTV는 영상 속 객체와 행동을 자동으로 인식하고, 위험 상황을 실시간으로 판단함으로써 보다 능동적인 안전 관리가 가능하다.
 
-<img src="https://visionify.ai/images/scenarios/smoke-and-fire-hero.jpg" class="confluence-embedded-image image-center" loading="lazy" width="250" height="250" />
-
-<img src="https://www.quytech.com/blog/wp-content/uploads/2025/07/intelligent-video-monitoring-systems-development.png" class="confluence-embedded-image confluence-external-resource image-center" data-image-src="https://www.quytech.com/blog/wp-content/uploads/2025/07/intelligent-video-monitoring-systems-development.png" loading="lazy" width="250" />
-
-<img src="https://vidiana.ai/wp-content/uploads/2025/08/AI-CCTV-Camera-2.png" class="confluence-embedded-image confluence-external-resource image-center" data-image-src="https://vidiana.ai/wp-content/uploads/2025/08/AI-CCTV-Camera-2.png" loading="lazy" width="250" />
+<p>
+  <img src="https://visionify.ai/images/scenarios/smoke-and-fire-hero.jpg" class="confluence-embedded-image image-center" loading="lazy" width="250" height="250" />
+  <img src="https://www.quytech.com/blog/wp-content/uploads/2025/07/intelligent-video-monitoring-systems-development.png" class="confluence-embedded-image confluence-external-resource image-center" data-image-src="https://www.quytech.com/blog/wp-content/uploads/2025/07/intelligent-video-monitoring-systems-development.png" loading="lazy" width="250" />
+  <img src="https://vidiana.ai/wp-content/uploads/2025/08/AI-CCTV-Camera-2.png" class="confluence-embedded-image confluence-external-resource image-center" data-image-src="https://vidiana.ai/wp-content/uploads/2025/08/AI-CCTV-Camera-2.png" loading="lazy" width="250" />
+</p>
 
 ------------------------------------------------------------------------
 
