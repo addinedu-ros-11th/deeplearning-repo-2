@@ -134,19 +134,7 @@ python app.py
 - 이벤트 클립은 브라우저 재생을 위해 저장 후 H.264로 변환됩니다. `ffmpeg`가 필요합니다.
 - 한글 라벨 렌더링을 위해 시스템 폰트(예: NanumGothic)를 사용합니다.
 
-### AI 서버 실행
-```bash
-cd /home/clyde/dev_ws/deeplearning-repo-2/poc/face_id_app
-  --task pose \
-  --model /home/clyde/dev_ws/deeplearning-repo-2/src/yolov8n-pose.pt \
-  --report-target <MANAGER_PC_IP:6001> \
-  --source-id cam01 \
-  --report-include-keypoints
-```
-
-### 결과 확인
-- 관리 PC에서 `/ai-logs` 페이지를 열면 AI 서버의 추론 결과가 저장되어 표시됩니다.
+### 실행 및 확인
+- `app.py`에서 얼굴 인식과 낙상 추론이 모두 수행됩니다.
+- 관리 PC에서 `/ai-logs` 페이지를 열면 추론 결과가 저장되어 표시됩니다.
 - 이벤트 발생 시 15초 클립이 저장되고, `/ai-logs`에서 링크로 확인할 수 있습니다.
-
-### 참고
-- 이벤트 발생 시 **4초 전 + 11초 후** 총 15초 클립을 저장하고, `/ai-logs`에서 링크로 확인할 수 있습니다.
