@@ -65,17 +65,13 @@ UNKNOWN_MIN_SECONDS = float(os.getenv("UNKNOWN_MIN_SECONDS", "2.0"))
 CAMERA_SOURCE = os.getenv("CAMERA_SOURCE", "0")
 FALL_MODEL_PATH = os.getenv(
     "FALL_MODEL_PATH",
-<<<<<<< HEAD
     str(REPO_ROOT / "runs" / "train" / "cctv_fall_laying_pose_v8n" / "weights" / "best.pt"),
-=======
-    "../../runs/train/cctv_fall_laying_pose_v8n/weights/best.pt",
->>>>>>> 84c0428 (Update face_id_app and add fire_smoke detection model)
 )
 FALL_CONF = float(os.getenv("FALL_CONF", "0.25"))
 FALL_FPS = float(os.getenv("FALL_FPS", "5.0"))
 FIRE_SMOKE_MODEL_PATH = os.getenv(
     "FIRE_SMOKE_MODEL_PATH",
-    "../../runs/train/fire_smoke_detect_v8s/weights/best.pt",
+    str(REPO_ROOT / "runs" / "train" / "fire_smoke_detect_v8s" / "weights" / "best.pt"),
 )
 FIRE_SMOKE_CONF = float(os.getenv("FIRE_SMOKE_CONF", "0.25"))
 FIRE_SMOKE_FPS = float(os.getenv("FIRE_SMOKE_FPS", "5.0"))
