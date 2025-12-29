@@ -20,6 +20,7 @@ from insightface.app import FaceAnalysis
 
 
 APP_DIR = Path(__file__).resolve().parent
+REPO_ROOT = APP_DIR.parents[1]
 DATA_DIR = APP_DIR / "data" / "face_registry"
 LOG_DIR = APP_DIR / "data" / "face_logs"
 CLIP_DIR = APP_DIR / "data" / "event_clips"
@@ -63,7 +64,7 @@ UNKNOWN_MIN_SECONDS = float(os.getenv("UNKNOWN_MIN_SECONDS", "2.0"))
 CAMERA_SOURCE = os.getenv("CAMERA_SOURCE", "0")
 FALL_MODEL_PATH = os.getenv(
     "FALL_MODEL_PATH",
-    "/home/clyde/dev_ws/deeplearning-repo-2/runs/train/cctv_fall_laying_pose_v8n/weights/best.pt",
+    str(REPO_ROOT / "runs" / "train" / "cctv_fall_laying_pose_v8n" / "weights" / "best.pt"),
 )
 FALL_CONF = float(os.getenv("FALL_CONF", "0.25"))
 FALL_FPS = float(os.getenv("FALL_FPS", "5.0"))
