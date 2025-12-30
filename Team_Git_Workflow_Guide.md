@@ -160,8 +160,6 @@ git checkout -b hotfix/<설명>
 - [ ] 이슈 트래킹 규칙(이슈 번호를 브랜치/PR에 넣을지)
 - [ ] 릴리즈 기준(언제 `develop` → `main` 올릴지)
 
----
-
 ## 12) 변경사항 병합시 명령어
 
 - `git stash push -u -m "wip before pull"`  
@@ -172,5 +170,4 @@ git checkout -b hotfix/<설명>
 
 - `git stash pop`  
   임시 보관했던 변경사항을 다시 꺼내 적용. 충돌 나면 여기서 확인.
-
 
