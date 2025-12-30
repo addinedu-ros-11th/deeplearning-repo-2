@@ -160,3 +160,17 @@ git checkout -b hotfix/<설명>
 - [ ] 이슈 트래킹 규칙(이슈 번호를 브랜치/PR에 넣을지)
 - [ ] 릴리즈 기준(언제 `develop` → `main` 올릴지)
 
+---
+
+## 12) 변경사항 병합시 명령어
+
+- `git stash push -u -m "wip before pull"`  
+  현재 변경사항(추적/미추적 파일 포함)을 임시 보관. `-u`가 `test.html` 같은 미추적 파일까지 포함.
+
+- `git pull --ff-only origin develop`  
+  원격 develop을 “빨리감기”로만 받음. 병합 커밋 없이 안전하게 업데이트.
+
+- `git stash pop`  
+  임시 보관했던 변경사항을 다시 꺼내 적용. 충돌 나면 여기서 확인.
+
+

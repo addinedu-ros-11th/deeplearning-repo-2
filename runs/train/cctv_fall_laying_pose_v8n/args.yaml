@@ -1,7 +1,7 @@
 task: pose
 mode: train
 model: yolov8n-pose.pt
-data: /home/clyde/dev_ws/deeplearning-repo-2/data/CCTV Fall and Lying Down Detection/laying_dataset/dataset.yaml
+data: /home/jm/dev_ws/mind_reading/deeplearning-repo-2/data/Fall & Lying Down Detection/laying_dataset/dataset.yaml
 epochs: 100
 time: null
 patience: 20
@@ -10,9 +10,9 @@ imgsz: 640
 save: true
 save_period: -1
 cache: true
-device: cpu
-workers: 8
-project: /home/clyde/dev_ws/deeplearning-repo-2/runs/train
+device: '0'
+workers: 2
+project: /home/jm/dev_ws/mind_reading/deeplearning-repo-2/runs/train
 name: cctv_fall_laying_pose_v8n
 exist_ok: true
 pretrained: true
@@ -103,4 +103,4 @@ auto_augment: randaugment
 erasing: 0.4
 cfg: null
 tracker: botsort.yaml
-save_dir: /home/clyde/dev_ws/deeplearning-repo-2/runs/train/cctv_fall_laying_pose_v8n
+save_dir: /home/jm/dev_ws/mind_reading/deeplearning-repo-2/runs/train/cctv_fall_laying_pose_v8n

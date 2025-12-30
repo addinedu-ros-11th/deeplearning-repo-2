@@ -204,6 +204,8 @@ cython_debug/
 # Project data & training artifacts
 data/
 src/runs/
+tools/
+*.mp4
 
 # Marimo
 marimo/_static/

@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>관심 요양원 - 모델 테스트</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>관심 요양원 - AI 통합 모니터</h1>
+    <nav>
+      <a href="/" class="{% if request.path == '/' %}active{% endif %}">모니터</a>
+      <a href="/register" class="{% if request.path == '/register' %}active{% endif %}">등록</a>
+      <a href="/test" class="{% if request.path == '/test' %}active{% endif %}">모델 테스트</a>
+      <a href="/ai-logs" class="{% if request.path == '/ai-logs' %}active{% endif %}">AI 로그</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="form-card">
+      <h2>모델 테스트 설정</h2>
+      <div class="status-line">
+        <span class="status-label">상태</span>
+        <span id="test-status-state" class="status-value status-{{ status.state }}">{{ status.state }}</span>
+        <span id="test-status-message" class="status-message">{{ status.message }}</span>
+      </div>
+      <form method="post" action="/test/start">
+        <label>
+          영상 소스 (로컬 경로)
+          <input type="text" name="video_source" value="{{ video_source }}" placeholder="/path/to/video.mp4" required>
+        </label>
+        <label>
+          모델 경로
+          <input type="text" name="model_path" value="{{ model_path }}" required>
+        </label>
+        <div class="form-row">
+          <button type="submit">테스트 시작</button>
+          <button type="submit" class="secondary" formaction="/test/stop">테스트 중지</button>
+        </div>
+      </form>
+      <p class="hint">로컬 파일 경로만 입력해서 바로 추론합니다.</p>
+    </section>
+
+    <section class="video-card monitor-card">
+      <h2>모델 테스트 스트리밍</h2>
+      <div class="video-grid">
+        <div class="video-tile">
+          <img src="/test_feed" alt="Test stream" />
+          <p class="video-caption">YouTube 추론 결과</p>
+        </div>
+      </div>
+    </section>
+  </main>
+  <script>
+    function refreshTestStatus() {
+      fetch("/test/status")
+        .then((resp) => resp.json())
+        .then((data) => {
+          const stateEl = document.getElementById("test-status-state");
+          const msgEl = document.getElementById("test-status-message");
+          if (!stateEl || !msgEl) {
+            return;
+          }
+          const nextState = data.state || "idle";
+          stateEl.textContent = nextState;
+          stateEl.className = "status-value status-" + nextState;
+          msgEl.textContent = data.message || "";
+        })
+        .catch(() => {});
+    }
+
+    setInterval(refreshTestStatus, 1500);
+  </script>
+</body>
+</html>

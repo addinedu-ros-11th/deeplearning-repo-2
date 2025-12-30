@@ -110,6 +110,24 @@
 
 ------------------------------------------------------------------------
 
+## 8-3. 데이터셋 출처 및 라이선스
+
+본 프로젝트에서 사용한 "CCTV Incident Dataset - Fall & Lying Down Detection"은 Simuletic에서 제공한 합성 데이터셋입니다.
+
+- Synthetic Nature: This data is computer-generated. No real humans were recorded or harmed.
+- License: CC BY 4.0 (Attribution required)
+
+Citation:
+
+@dataset{simuletic_fall_detection_2025,
+author = {Simuletic Team},
+title = {Simuletic Synthetic Fall & Incident Detection Dataset},
+year = {2025},
+url = {https://simuletic.com}
+}
+
+------------------------------------------------------------------------
+
 ## 9. 실습 실행 (Face ID + 낙상 추론 연동)
 
 ### 구성 요약
@@ -138,3 +156,12 @@ python app.py
 - `app.py`에서 얼굴 인식과 낙상 추론이 모두 수행됩니다.
 - 관리 PC에서 `/ai-logs` 페이지를 열면 추론 결과가 저장되어 표시됩니다.
 - 이벤트 발생 시 15초 클립이 저장되고, `/ai-logs`에서 링크로 확인할 수 있습니다.
+
+------------------------------------------------------------------------
+
+<p align="left">
+  <img src="mind_reading.png" alt="관심법 로고" width="220" />
+  <br />
+  <strong>관심법</strong> | 
+  <span>관심 요양원</span>
+</p>
