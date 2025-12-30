@@ -90,6 +90,8 @@ COLOR_PATIENT = (255, 255, 255)
 COLOR_UNKNOWN = (0, 0, 255)
 
 LABEL_FONT_CANDIDATES = [
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
     "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
     "/usr/share/fonts/truetype/nanum/NanumBarunGothic.ttf",
     "/usr/share/fonts/truetype/unfonts-core/UnDotum.ttf",
