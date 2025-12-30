@@ -17,11 +17,11 @@
 [ 모델별 폐기 사유]
 
 - cctv1
-  - Fight 클래스만 인식
+  - Fight 클래스로만 인식
   - 그림자를 사람으로 오인식
 
 - cctv2
-  - Normal 클래스만 인식
+  - Normal 클래스로만 인식
   - 클래스 분류 편향 발생
 
 - cctv_1_stable
@@ -29,20 +29,20 @@
   - 데이터 품질 문제로 폐기
 
 - cctv_optimized_s_v2
-  - Fight 클래스만 인식
+  - Fight 클래스로만 인식
   - 그림자를 사람으로 오인식
 
 - cctv_pose_final
-  - Fight 클래스만 인식
+  - Fight 클래스로만 인식
   - 클래스 일반화 실패
 
 - cctv_v2_5_shadow_master
-  - Fight 클래스만 인식
+  - Fight 클래스로만 인식
   - 그림자를 사람으로 강하게 오인식
-  - cctv_v2_shadow_fix 개선 버전이나 문제 미해결
+  - cctv_v2_shadow_fix 개선 버전이나 문제 심화
 
-- cctv_v2_shadow_fix
-  - Fight 클래스만 인식
+- cctv_v2_shadow_fix됨
+  - Fight 클래스로만 인식
   - 그림자를 사람으로 오인식
   - cctv_optimized_s_v2 개선 시도 버전
 ```
