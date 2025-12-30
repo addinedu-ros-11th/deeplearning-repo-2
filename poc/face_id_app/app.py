@@ -25,10 +25,12 @@ DATA_DIR = APP_DIR / "data" / "face_registry"
 LOG_DIR = APP_DIR / "data" / "face_logs"
 CLIP_DIR = APP_DIR / "data" / "event_clips"
 CAPTURE_DIR = APP_DIR / "data" / "captures"
+TEST_VIDEO_DIR = APP_DIR / "data" / "test_videos"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 CLIP_DIR.mkdir(parents=True, exist_ok=True)
 CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
+TEST_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
 
 DB_CONFIG = {
     "host": "localhost",
@@ -130,6 +132,18 @@ _fall_lock = threading.Lock()
 _fire_smoke_model = None
 _fire_smoke_model_error = None
 _fire_smoke_lock = threading.Lock()
+_test_thread = None
+_test_stop_event = threading.Event()
+_test_latest_jpeg = None
+_test_latest_lock = threading.Lock()
+_test_status = {"state": "idle", "message": ""}
+_test_lock = threading.Lock()
+_test_source_url = None
+_test_model_path = None
+
+
+TEST_FPS = float(os.getenv("TEST_FPS", "5.0"))
+TEST_CONF = float(os.getenv("TEST_CONF", str(FALL_CONF)))
 
 
 class Gallery:
@@ -343,20 +357,6 @@ def init_db():
         )
         cur.execute(
             """
-            CREATE TABLE IF NOT EXISTS recognition_logs (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                person_id INT NOT NULL,
-                name VARCHAR(100) NOT NULL,
-                role ENUM('employee', 'patient') NOT NULL,
-                similarity FLOAT NOT NULL,
-                image_path VARCHAR(255),
-                seen_at DATETIME NOT NULL,
-                FOREIGN KEY (person_id) REFERENCES persons(id)
-            )
-            """
-        )
-        cur.execute(
-            """
             CREATE TABLE IF NOT EXISTS ai_event_logs (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 task VARCHAR(32) NOT NULL,
@@ -369,10 +369,6 @@ def init_db():
             )
             """
         )
-        try:
-            cur.execute("ALTER TABLE recognition_logs ADD COLUMN image_path VARCHAR(255)")
-        except mysql.connector.Error:
-            pass
         try:
             cur.execute("ALTER TABLE ai_event_logs ADD COLUMN video_path VARCHAR(255)")
         except mysql.connector.Error:
@@ -509,49 +505,6 @@ def best_match(embedding, embeddings, meta):
     sims = embeddings @ embedding
     idx = int(np.argmax(sims))
     return meta[idx], float(sims[idx])
-
-
-def maybe_log_recognition(person, similarity, frame, bbox):
-    now = datetime.now()
-    last_time = _last_log.get(person["id"])
-    if last_time and now - last_time < timedelta(seconds=LOG_DEDUP_SECONDS):
-        return
-
-    x1, y1, x2, y2 = [int(v) for v in bbox]
-    x1 = max(0, x1)
-    y1 = max(0, y1)
-    x2 = min(frame.shape[1], x2)
-    y2 = min(frame.shape[0], y2)
-    face_crop = frame[y1:y2, x1:x2]
-
-    image_path = None
-    if face_crop.size:
-        timestamp = now.strftime("%Y%m%d_%H%M%S_%f")
-        filename = f"log_{person['id']}_{timestamp}.jpg"
-        image_path = LOG_DIR / filename
-        cv2.imwrite(str(image_path), face_crop)
-
-    with _db_lock:
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute(
-            """
-            INSERT INTO recognition_logs (person_id, name, role, similarity, image_path, seen_at)
-            VALUES (%s, %s, %s, %s, %s, %s)
-            """,
-            (
-                person["id"],
-                person["name"],
-                person["role"],
-                similarity,
-                str(image_path) if image_path else None,
-                now,
-            ),
-        )
-        cur.close()
-        conn.close()
-
-    _last_log[person["id"]] = now
 
 
 def log_unknown_event(similarity, frame, bbox):
@@ -864,6 +817,109 @@ def annotate_fire_smoke_frame(frame):
     except Exception as exc:
         print(f"[fire_smoke] label overlay failed: {exc}")
     return annotated
+def _set_test_status(state, message=""):
+    with _test_lock:
+        _test_status["state"] = state
+        _test_status["message"] = message
+
+
+def _get_test_status():
+    with _test_lock:
+        return dict(_test_status)
+
+
+def _get_video_stream_source(path_str):
+    if not path_str:
+        return None, "missing video source"
+    path = Path(path_str)
+    if path.exists():
+        return str(path), ""
+    return None, f"file not found: {path_str}"
+
+
+def _start_test_stream(youtube_url, model_path):
+    global _test_thread, _test_source_url, _test_model_path
+
+    if _test_thread and _test_thread.is_alive():
+        _stop_test_stream()
+
+    _test_stop_event.clear()
+    _test_source_url = youtube_url
+    _test_model_path = model_path
+    thread = threading.Thread(
+        target=_test_loop,
+        args=(youtube_url, model_path, TEST_CONF, TEST_FPS),
+        daemon=True,
+    )
+    _test_thread = thread
+    thread.start()
+
+
+def _stop_test_stream():
+    global _test_thread
+    _test_stop_event.set()
+    if _test_thread and _test_thread.is_alive():
+        _test_thread.join(timeout=2.0)
+    _test_thread = None
+    _set_test_status("stopped", "stream stopped")
+
+
+def _test_loop(youtube_url, model_path, conf, fps):
+    _set_test_status("starting", "loading video source")
+    stream_url, err = _get_video_stream_source(youtube_url)
+    if not stream_url:
+        _set_test_status("error", err)
+        return
+
+    try:
+        from ultralytics import YOLO
+    except Exception as exc:
+        _set_test_status("error", f"ultralytics import failed: {exc}")
+        return
+
+    model_path = Path(model_path)
+    if not model_path.exists():
+        _set_test_status("error", f"model not found: {model_path}")
+        return
+
+    model = YOLO(str(model_path))
+    cap = cv2.VideoCapture(stream_url)
+    if not cap.isOpened():
+        _set_test_status("error", "failed to open video source")
+        return
+
+    _set_test_status("running", "streaming")
+    frame_interval = 1.0 / fps if fps > 0 else 0.0
+    next_time = time.time()
+
+    while not _test_stop_event.is_set():
+        ret, frame = cap.read()
+        if not ret or frame is None:
+            _set_test_status("error", "stream ended or failed to read frame")
+            break
+
+        now = time.time()
+        if frame_interval > 0 and now < next_time:
+            time.sleep(max(0.0, next_time - now))
+        next_time = time.time() + frame_interval
+
+        results = model.predict(frame, conf=conf, verbose=False)
+        if results:
+            annotated = results[0].plot()
+        else:
+            annotated = frame
+
+        ok, buffer = cv2.imencode(
+            ".jpg",
+            annotated,
+            [int(cv2.IMWRITE_JPEG_QUALITY), UDP_JPEG_QUALITY],
+        )
+        if ok:
+            with _test_latest_lock:
+                global _test_latest_jpeg
+                _test_latest_jpeg = buffer.tobytes()
+
+    cap.release()
 
 
 def camera_loop():
@@ -1011,6 +1067,18 @@ def generate_fire_smoke_frames():
         time.sleep(0.05)
 
 
+def generate_test_frames():
+    while True:
+        with _test_latest_lock:
+            jpeg_bytes = _test_latest_jpeg
+        if jpeg_bytes:
+            yield (
+                b"--frame\r\n"
+                b"Content-Type: image/jpeg\r\n\r\n" + jpeg_bytes + b"\r\n"
+            )
+        time.sleep(0.05)
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -1034,6 +1102,55 @@ def video_feed_fall():
 @app.route("/video_feed_fire_smoke")
 def video_feed_fire_smoke():
     return Response(generate_fire_smoke_frames(), mimetype="multipart/x-mixed-replace; boundary=frame")
+
+
+@app.route("/test")
+def test_page():
+    status = _get_test_status()
+    return render_template(
+        "test.html",
+        status=status,
+        model_path=_test_model_path or FALL_MODEL_PATH,
+        video_source=_test_source_url or "",
+        test_conf=TEST_CONF,
+        test_fps=TEST_FPS,
+    )
+
+
+@app.route("/test/status")
+def test_status():
+    return jsonify(_get_test_status())
+
+
+@app.route("/test/start", methods=["POST"])
+def test_start():
+    video_source = request.form.get("video_source", "").strip()
+    model_path = request.form.get("model_path", "").strip()
+    if not video_source or not model_path:
+        return render_template(
+            "test.html",
+            status={"state": "error", "message": "영상 소스와 모델 경로를 입력하세요."},
+            model_path=model_path or FALL_MODEL_PATH,
+            video_source=video_source,
+            test_conf=TEST_CONF,
+            test_fps=TEST_FPS,
+        )
+    _start_test_stream(
+        video_source,
+        model_path,
+    )
+    return redirect(url_for("test_page"))
+
+
+@app.route("/test/stop", methods=["POST"])
+def test_stop():
+    _stop_test_stream()
+    return redirect(url_for("test_page"))
+
+
+@app.route("/test_feed")
+def test_feed():
+    return Response(generate_test_frames(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
 
 @app.route("/register", methods=["GET", "POST"])
