@@ -24,6 +24,12 @@
         <span id="test-status-state" class="status-value status-{{ status.state }}">{{ status.state }}</span>
         <span id="test-status-message" class="status-message">{{ status.message }}</span>
       </div>
+      {% if download_message %}
+      <div class="status-line">
+        <span class="status-label">다운로드</span>
+        <span class="status-message">{{ download_message }}</span>
+      </div>
+      {% endif %}
       <form method="post" action="/test/start">
         <label>
           영상 소스 (로컬 경로)
@@ -38,26 +44,64 @@
           <button type="submit" class="secondary" formaction="/test/stop">테스트 중지</button>
         </div>
       </form>
+      <form method="post" action="/test/download">
+        <label>
+          YouTube URL (다운로드)
+          <input type="text" name="youtube_url" placeholder="https://www.youtube.com/watch?v=..." required>
+        </label>
+        <div class="form-row">
+          <button type="submit" class="secondary">YouTube 다운로드</button>
+        </div>
+      </form>
       <p class="hint">로컬 파일 경로만 입력해서 바로 추론합니다.</p>
+      <p class="hint">YouTube 다운로드는 실패할 수 있어요. 필요하면 `data/test_videos/cookies.txt`를 넣어 주세요.</p>
     </section>
 
     <section class="video-card monitor-card">
       <h2>모델 테스트 스트리밍</h2>
-      <div class="video-grid">
-        <div class="video-tile">
-          <img src="/test_feed" alt="Test stream" />
-          <p class="video-caption">YouTube 추론 결과</p>
+      <div class="video-grid single">
+        <div class="video-tile large">
+          <img id="test-stream" src="/test_feed" alt="Test stream" />
+          <canvas id="test-canvas" class="hidden"></canvas>
+          <div class="form-row">
+            <button type="button" id="freeze-btn" class="secondary">일시정지</button>
+            <button type="button" id="resume-btn" class="secondary" disabled>재생</button>
+            <button type="button" id="capture-btn">캡쳐 저장</button>
+          </div>
+          <div class="seek-row">
+            <input type="range" id="test-seek" min="0" max="0" step="0.1" value="0" />
+            <span id="test-seek-label" class="seek-label">00:00 / 00:00</span>
+          </div>
+          <p class="video-caption">테스트 스트리밍 결과</p>
         </div>
       </div>
     </section>
   </main>
   <script>
+    let seekDragging = false;
+
+    function formatTime(seconds) {
+      const total = Math.max(0, Math.floor(seconds || 0));
+      const m = String(Math.floor(total / 60)).padStart(2, "0");
+      const s = String(total % 60).padStart(2, "0");
+      return m + ":" + s;
+    }
+
+    function formatDuration(seconds) {
+      if (!seconds || seconds <= 0) {
+        return "--:--";
+      }
+      return formatTime(seconds);
+    }
+
     function refreshTestStatus() {
       fetch("/test/status")
         .then((resp) => resp.json())
         .then((data) => {
           const stateEl = document.getElementById("test-status-state");
           const msgEl = document.getElementById("test-status-message");
+          const seekEl = document.getElementById("test-seek");
+          const seekLabel = document.getElementById("test-seek-label");
           if (!stateEl || !msgEl) {
             return;
           }
@@ -65,11 +109,105 @@
           stateEl.textContent = nextState;
           stateEl.className = "status-value status-" + nextState;
           msgEl.textContent = data.message || "";
+          if (seekEl && seekLabel) {
+            const duration = Number(data.duration_seconds || 0);
+            const position = Number(data.position_seconds || 0);
+            if (duration > 0) {
+              seekEl.max = String(duration);
+            } else {
+              seekEl.max = String(Math.max(1, position + 10));
+            }
+            if (!seekDragging) {
+              seekEl.value = String(position);
+            }
+            seekLabel.textContent = formatTime(position) + " / " + formatDuration(duration);
+          }
         })
         .catch(() => {});
     }
 
     setInterval(refreshTestStatus, 1500);
+
+    const streamImg = document.getElementById("test-stream");
+    const canvas = document.getElementById("test-canvas");
+    const freezeBtn = document.getElementById("freeze-btn");
+    const resumeBtn = document.getElementById("resume-btn");
+    const captureBtn = document.getElementById("capture-btn");
+    const seekEl = document.getElementById("test-seek");
+
+    function drawToCanvas() {
+      if (!streamImg || !canvas) {
+        return false;
+      }
+      const width = streamImg.naturalWidth || streamImg.width;
+      const height = streamImg.naturalHeight || streamImg.height;
+      if (!width || !height) {
+        return false;
+      }
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        return false;
+      }
+      ctx.drawImage(streamImg, 0, 0, width, height);
+      return true;
+    }
+
+    if (freezeBtn && resumeBtn && captureBtn && streamImg && canvas) {
+      freezeBtn.addEventListener("click", () => {
+        fetch("/test/pause", { method: "POST" }).catch(() => {});
+        freezeBtn.disabled = true;
+        resumeBtn.disabled = false;
+      });
+
+      resumeBtn.addEventListener("click", () => {
+        fetch("/test/resume", { method: "POST" }).catch(() => {});
+        freezeBtn.disabled = false;
+        resumeBtn.disabled = true;
+      });
+
+      captureBtn.addEventListener("click", () => {
+        if (!drawToCanvas()) {
+          return;
+        }
+        const link = document.createElement("a");
+        link.download = "test_capture.png";
+        link.href = canvas.toDataURL("image/png");
+        link.click();
+      });
+    }
+
+    if (seekEl) {
+      let seekTimer = null;
+      const sendSeek = (value) => {
+        fetch("/test/seek", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: "seconds=" + encodeURIComponent(String(value)),
+        }).catch(() => {});
+      };
+
+      seekEl.addEventListener("pointerdown", () => {
+        seekDragging = true;
+      });
+      seekEl.addEventListener("pointerup", () => {
+        seekDragging = false;
+      });
+      seekEl.addEventListener("input", () => {
+        seekDragging = true;
+        const value = Number(seekEl.value || 0);
+        if (seekTimer) {
+          clearTimeout(seekTimer);
+        }
+        seekTimer = setTimeout(() => sendSeek(value), 150);
+      });
+      seekEl.addEventListener("change", () => {
+        const value = Number(seekEl.value || 0);
+        sendSeek(value);
+        seekDragging = false;
+      });
+    }
   </script>
 </body>
 </html>
