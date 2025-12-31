@@ -64,18 +64,21 @@ UNKNOWN_LOG_DEDUP_SECONDS = 5
 FALL_LOG_DEDUP_SECONDS = 5
 FIRE_SMOKE_LOG_DEDUP_SECONDS = 5
 UNKNOWN_MIN_SECONDS = float(os.getenv("UNKNOWN_MIN_SECONDS", "2.0"))
-CAMERA_SOURCE = os.getenv("CAMERA_SOURCE", "0")
+CAMERA_SOURCE = os.getenv("CAMERA_SOURCE", "auto")
+CAMERA_SOURCE_2 = os.getenv("CAMERA_SOURCE_2", "auto")
+CAMERA_BY_ID_MATCH = os.getenv("CAMERA_BY_ID_MATCH", "").strip()
+CAMERA2_BY_ID_MATCH = os.getenv("CAMERA2_BY_ID_MATCH", "").strip()
 FALL_MODEL_PATH = os.getenv(
     "FALL_MODEL_PATH",
     str(REPO_ROOT / "runs" / "train" / "cctv_fall_laying_pose_v8n" / "weights" / "best.pt"),
 )
-FALL_CONF = float(os.getenv("FALL_CONF", "0.25"))
+FALL_CONF = float(os.getenv("FALL_CONF", "0.5"))
 FALL_FPS = float(os.getenv("FALL_FPS", "5.0"))
 FIRE_SMOKE_MODEL_PATH = os.getenv(
     "FIRE_SMOKE_MODEL_PATH",
     str(REPO_ROOT / "runs" / "train" / "fire_smoke_detect_v8s" / "weights" / "best.pt"),
 )
-FIRE_SMOKE_CONF = float(os.getenv("FIRE_SMOKE_CONF", "0.25"))
+FIRE_SMOKE_CONF = float(os.getenv("FIRE_SMOKE_CONF", "0.5"))
 FIRE_SMOKE_FPS = float(os.getenv("FIRE_SMOKE_FPS", "5.0"))
 UDP_VIDEO_TARGETS = os.getenv("UDP_VIDEO_TARGETS", "")
 UDP_JPEG_QUALITY = int(os.getenv("UDP_JPEG_QUALITY", "80"))
@@ -84,6 +87,30 @@ UDP_FPS = float(os.getenv("UDP_FPS", "0"))
 
 UDP_HEADER_FORMAT = "!IHH"
 UDP_HEADER_SIZE = struct.calcsize(UDP_HEADER_FORMAT)
+
+CCTV1_FACE_SOURCE_ID = "cctv1_face"
+CCTV1_FALL_SOURCE_ID = "cctv1_fall"
+CCTV1_FIRE_SOURCE_ID = "cctv1_fire"
+CCTV2_FACE_SOURCE_ID = "cctv2_face"
+CCTV2_FALL_SOURCE_ID = "cctv2_fall"
+CCTV2_FIRE_SOURCE_ID = "cctv2_fire"
+
+CCTV_SOURCE_MAP = {
+    "cctv1": [
+        CCTV1_FACE_SOURCE_ID,
+        CCTV1_FALL_SOURCE_ID,
+        CCTV1_FIRE_SOURCE_ID,
+        "face_id",
+        "fall_cam",
+        "fire_smoke_cam",
+        None,
+    ],
+    "cctv2": [
+        CCTV2_FACE_SOURCE_ID,
+        CCTV2_FALL_SOURCE_ID,
+        CCTV2_FIRE_SOURCE_ID,
+    ],
+}
 
 COLOR_EMPLOYEE = (255, 0, 0)
 COLOR_PATIENT = (255, 255, 255)
@@ -104,18 +131,24 @@ _db_lock = threading.Lock()
 _camera_lock = threading.Lock()
 _camera = None
 _camera_source = None
+_camera2_lock = threading.Lock()
+_camera2 = None
+_camera2_source = None
 
 _gallery_lock = threading.Lock()
 _gallery_embeddings = None
 _gallery_meta = None
 _last_log = {}
-_last_unknown_log = None
-_last_fall_log = None
-_last_fire_smoke_log = None
-_unknown_since = None
+_last_unknown_log = {}
+_last_fall_log = {}
+_last_fire_smoke_log = {}
+_unknown_since = {}
 _clip_recorder = None
 _fall_clip_recorder = None
 _fire_smoke_clip_recorder = None
+_clip_recorder_2 = None
+_fall_clip_recorder_2 = None
+_fire_smoke_clip_recorder_2 = None
 _udp_sock = None
 _udp_targets = None
 _udp_frame_id = 0
@@ -124,9 +157,14 @@ _udp_frame_interval = 0.0
 _udp_next_frame_time = 0.0
 _latest_jpeg = None
 _latest_raw_jpeg = None
+_latest_raw_jpeg_2 = None
 _latest_fall_jpeg = None
 _latest_fire_smoke_jpeg = None
+_latest_fall_jpeg_2 = None
+_latest_fire_smoke_jpeg_2 = None
 _latest_lock = threading.Lock()
+_last_frame_time = None
+_last_frame_time_2 = None
 _shutdown_event = threading.Event()
 _fall_model = None
 _fall_model_error = None
@@ -385,15 +423,114 @@ def init_db():
         conn.close()
 
 
+def _video_index(path: Path) -> int:
+    digits = "".join(ch for ch in path.name if ch.isdigit())
+    return int(digits) if digits else 9999
+
+
+def _list_by_id_nodes():
+    by_id_dir = Path("/dev/v4l/by-id")
+    if not by_id_dir.exists():
+        return []
+    nodes = []
+    for entry in by_id_dir.iterdir():
+        if "video-index0" not in entry.name:
+            continue
+        nodes.append(entry)
+    return sorted(nodes, key=lambda p: p.name)
+
+
+def _list_video_nodes():
+    nodes = [p for p in Path("/dev").glob("video*") if p.name[5:].isdigit()]
+    return sorted(nodes, key=_video_index)
+
+
+def _resolve_by_id_match(match_value):
+    if not match_value:
+        return None
+    match_lower = match_value.lower()
+    for entry in _list_by_id_nodes():
+        if match_lower in entry.name.lower():
+            return str(entry)
+    return None
+
+
+def _resolve_auto_source(fallback_index, exclude_sources):
+    exclude_set = {str(source) for source in (exclude_sources or [])}
+    by_id_nodes = _list_by_id_nodes()
+    by_id_paths = [str(p) for p in by_id_nodes if str(p) not in exclude_set]
+    if by_id_paths:
+        return by_id_paths[min(fallback_index, len(by_id_paths) - 1)]
+    video_nodes = _list_video_nodes()
+    video_paths = [str(p) for p in video_nodes if str(p) not in exclude_set]
+    if video_paths:
+        return video_paths[min(fallback_index, len(video_paths) - 1)]
+    return None
+
+
+def _normalize_camera_source(value):
+    if value is None:
+        return None
+    value = str(value).strip()
+    if not value:
+        return None
+    if value.lower() == "auto":
+        return "auto"
+    if value.isdigit():
+        return int(value)
+    return value
+
+
+def _expand_exclude_sources(sources):
+    expanded = []
+    for source in sources:
+        if source is None:
+            continue
+        expanded.append(str(source))
+        if isinstance(source, int):
+            expanded.append(f"/dev/video{source}")
+    return expanded
+
+
+def resolve_camera_source(primary_value, by_id_match, fallback_index, exclude_sources=None):
+    normalized = _normalize_camera_source(primary_value)
+    if normalized and normalized != "auto":
+        return normalized
+    by_id_path = _resolve_by_id_match(by_id_match)
+    if by_id_path:
+        return by_id_path
+    auto_path = _resolve_auto_source(fallback_index, exclude_sources or [])
+    if auto_path is not None:
+        return auto_path
+    return fallback_index if normalized == "auto" else normalized
+
+
 def get_camera():
     global _camera
     global _camera_source
     with _camera_lock:
         if _camera_source is None:
-            _camera_source = int(CAMERA_SOURCE) if CAMERA_SOURCE.isdigit() else CAMERA_SOURCE
+            _camera_source = resolve_camera_source(CAMERA_SOURCE, CAMERA_BY_ID_MATCH, 0, [])
         if _camera is None or not _camera.isOpened():
             _camera = cv2.VideoCapture(_camera_source)
         return _camera
+
+
+def get_camera_secondary():
+    global _camera2
+    global _camera2_source
+    with _camera2_lock:
+        if _camera2_source is None:
+            exclude = _expand_exclude_sources([_camera_source])
+            _camera2_source = resolve_camera_source(
+                CAMERA_SOURCE_2,
+                CAMERA2_BY_ID_MATCH,
+                1,
+                exclude,
+            )
+        if _camera2 is None or not _camera2.isOpened():
+            _camera2 = cv2.VideoCapture(_camera2_source)
+        return _camera2
 
 
 def l2_normalize(vec: np.ndarray) -> np.ndarray:
@@ -515,12 +652,14 @@ def best_match(embedding, embeddings, meta):
     return meta[idx], float(sims[idx])
 
 
-def log_unknown_event(similarity, frame, bbox):
+def log_unknown_event(similarity, frame, bbox, source_id, clip_recorder):
     global _last_unknown_log
-    if _clip_recorder and _clip_recorder.active:
+    if clip_recorder and clip_recorder.active:
         return None
     now = datetime.now()
-    if _last_unknown_log and now - _last_unknown_log < timedelta(seconds=UNKNOWN_LOG_DEDUP_SECONDS):
+    source_key = source_id or "unknown"
+    last_seen = _last_unknown_log.get(source_key)
+    if last_seen and now - last_seen < timedelta(seconds=UNKNOWN_LOG_DEDUP_SECONDS):
         return None
 
     x1, y1, x2, y2 = [int(v) for v in bbox]
@@ -557,7 +696,7 @@ def log_unknown_event(similarity, frame, bbox):
                 "intruder",
                 "unknown",
                 similarity,
-                "face_id",
+                source_id,
                 json.dumps(payload, ensure_ascii=True),
                 now,
             ),
@@ -566,14 +705,16 @@ def log_unknown_event(similarity, frame, bbox):
         cur.close()
         conn.close()
 
-    _last_unknown_log = now
+    _last_unknown_log[source_key] = now
     return row_id
 
 
-def log_fall_event(label, score, boxes):
+def log_fall_event(label, score, boxes, source_id):
     global _last_fall_log
     now = datetime.now()
-    if _last_fall_log and now - _last_fall_log < timedelta(seconds=FALL_LOG_DEDUP_SECONDS):
+    source_key = source_id or "unknown"
+    last_seen = _last_fall_log.get(source_key)
+    if last_seen and now - last_seen < timedelta(seconds=FALL_LOG_DEDUP_SECONDS):
         return None
     payload = {
         "label": label,
@@ -593,7 +734,7 @@ def log_fall_event(label, score, boxes):
                 "pose",
                 label,
                 float(score),
-                "fall_cam",
+                source_id,
                 json.dumps(payload, ensure_ascii=True),
                 now,
             ),
@@ -601,14 +742,16 @@ def log_fall_event(label, score, boxes):
         row_id = cur.lastrowid
         cur.close()
         conn.close()
-    _last_fall_log = now
+    _last_fall_log[source_key] = now
     return row_id
 
 
-def log_fire_smoke_event(label, score, boxes):
+def log_fire_smoke_event(label, score, boxes, source_id):
     global _last_fire_smoke_log
     now = datetime.now()
-    if _last_fire_smoke_log and now - _last_fire_smoke_log < timedelta(seconds=FIRE_SMOKE_LOG_DEDUP_SECONDS):
+    source_key = source_id or "unknown"
+    last_seen = _last_fire_smoke_log.get(source_key)
+    if last_seen and now - last_seen < timedelta(seconds=FIRE_SMOKE_LOG_DEDUP_SECONDS):
         return None
     payload = {
         "label": label,
@@ -628,7 +771,7 @@ def log_fire_smoke_event(label, score, boxes):
                 "detect",
                 label,
                 float(score),
-                "fire_smoke_cam",
+                source_id,
                 json.dumps(payload, ensure_ascii=True),
                 now,
             ),
@@ -636,30 +779,32 @@ def log_fire_smoke_event(label, score, boxes):
         row_id = cur.lastrowid
         cur.close()
         conn.close()
-    _last_fire_smoke_log = now
+    _last_fire_smoke_log[source_key] = now
     return row_id
 
 
-def annotate_frame(frame):
+def annotate_frame(frame, source_id, clip_recorder):
     global _unknown_since
     faces = face_app.get(frame)
     embeddings, meta = get_gallery()
     now_mono = time.monotonic()
     unknown_seen = False
     unknown_logged = False
+    source_key = source_id or "unknown"
 
     for face in faces:
         person, similarity = best_match(face.embedding, embeddings, meta)
         if person is None or similarity < SIM_THRESHOLD:
             unknown_seen = True
-            if _unknown_since is None:
-                _unknown_since = now_mono
+            if _unknown_since.get(source_key) is None:
+                _unknown_since[source_key] = now_mono
             draw_label(frame, face.bbox, "외부인", COLOR_UNKNOWN, (255, 255, 255))
-            if not unknown_logged and _unknown_since is not None:
-                if now_mono - _unknown_since >= UNKNOWN_MIN_SECONDS:
-                    row_id = log_unknown_event(similarity, frame, face.bbox)
-                    if row_id and _clip_recorder:
-                        _clip_recorder.trigger(row_id, "unknown", "face_id")
+            unknown_since_value = _unknown_since.get(source_key)
+            if not unknown_logged and unknown_since_value is not None:
+                if now_mono - unknown_since_value >= UNKNOWN_MIN_SECONDS:
+                    row_id = log_unknown_event(similarity, frame, face.bbox, source_id, clip_recorder)
+                    if row_id and clip_recorder:
+                        clip_recorder.trigger(row_id, "unknown", source_id)
                     unknown_logged = True
             continue
 
@@ -676,7 +821,7 @@ def annotate_frame(frame):
         draw_label(frame, face.bbox, label, color, text_color)
 
     if not unknown_seen:
-        _unknown_since = None
+        _unknown_since[source_key] = None
 
     return frame
 
@@ -721,7 +866,7 @@ def get_fire_smoke_model():
         return _fire_smoke_model
 
 
-def annotate_fall_frame(frame):
+def annotate_fall_frame(frame, source_id, clip_recorder):
     model = get_fall_model()
     if model is None:
         return frame
@@ -766,15 +911,15 @@ def annotate_fall_frame(frame):
                 fall_label = "fall"
             if fall_score is None:
                 fall_score = 0.0
-            row_id = log_fall_event(fall_label, fall_score, fall_boxes)
-            if row_id and _fall_clip_recorder:
-                _fall_clip_recorder.trigger(row_id, fall_label, "fall_cam")
+            row_id = log_fall_event(fall_label, fall_score, fall_boxes, source_id)
+            if row_id and clip_recorder:
+                clip_recorder.trigger(row_id, fall_label, source_id)
     except Exception as exc:
         print(f"[fall] label overlay failed: {exc}")
     return annotated
 
 
-def annotate_fire_smoke_frame(frame):
+def annotate_fire_smoke_frame(frame, source_id, clip_recorder):
     model = get_fire_smoke_model()
     if model is None:
         return frame
@@ -819,9 +964,9 @@ def annotate_fire_smoke_frame(frame):
                 fire_smoke_label = "fire"
             if fire_smoke_score is None:
                 fire_smoke_score = 0.0
-            row_id = log_fire_smoke_event(fire_smoke_label, fire_smoke_score, fire_smoke_boxes)
-            if row_id and _fire_smoke_clip_recorder:
-                _fire_smoke_clip_recorder.trigger(row_id, fire_smoke_label, "fire_smoke_cam")
+            row_id = log_fire_smoke_event(fire_smoke_label, fire_smoke_score, fire_smoke_boxes, source_id)
+            if row_id and clip_recorder:
+                clip_recorder.trigger(row_id, fire_smoke_label, source_id)
     except Exception as exc:
         print(f"[fire_smoke] label overlay failed: {exc}")
     return annotated
@@ -1008,6 +1153,7 @@ def camera_loop():
     global _camera
     global _latest_jpeg
     global _latest_raw_jpeg
+    global _last_frame_time
     cam = get_camera()
     encode_params = [int(cv2.IMWRITE_JPEG_QUALITY), UDP_JPEG_QUALITY]
     while not _shutdown_event.is_set():
@@ -1025,8 +1171,9 @@ def camera_loop():
         if ok:
             with _latest_lock:
                 _latest_raw_jpeg = raw_buffer.tobytes()
+                _last_frame_time = time.time()
         try:
-            frame = annotate_frame(frame)
+            frame = annotate_frame(frame, CCTV1_FACE_SOURCE_ID, _clip_recorder)
         except Exception as exc:
             print(f"[camera] annotate_frame failed: {exc}")
         if _clip_recorder:
@@ -1038,6 +1185,36 @@ def camera_loop():
         udp_send_frame(jpeg_bytes)
         with _latest_lock:
             _latest_jpeg = jpeg_bytes
+
+
+def camera_loop_secondary():
+    global _camera2
+    global _latest_raw_jpeg_2
+    global _last_frame_time_2
+    cam = get_camera_secondary()
+    encode_params = [int(cv2.IMWRITE_JPEG_QUALITY), UDP_JPEG_QUALITY]
+    while not _shutdown_event.is_set():
+        with _camera2_lock:
+            ret, frame = cam.read()
+        if not ret or frame is None:
+            with _camera2_lock:
+                if cam is _camera2:
+                    cam.release()
+                    _camera2 = None
+                cam = get_camera_secondary()
+            time.sleep(0.2)
+            continue
+        ok, raw_buffer = cv2.imencode(".jpg", frame, encode_params)
+        if ok:
+            with _latest_lock:
+                _latest_raw_jpeg_2 = raw_buffer.tobytes()
+                _last_frame_time_2 = time.time()
+        try:
+            frame = annotate_frame(frame, CCTV2_FACE_SOURCE_ID, _clip_recorder_2)
+        except Exception as exc:
+            print(f"[camera2] annotate_frame failed: {exc}")
+        if _clip_recorder_2:
+            _clip_recorder_2.add_frame(frame)
 
 
 def fall_loop():
@@ -1057,7 +1234,7 @@ def fall_loop():
             time.sleep(0.1)
             continue
         try:
-            frame = annotate_fall_frame(frame)
+            frame = annotate_fall_frame(frame, CCTV1_FALL_SOURCE_ID, _fall_clip_recorder)
         except Exception as exc:
             print(f"[fall] annotate failed: {exc}")
         if _fall_clip_recorder:
@@ -1088,7 +1265,7 @@ def fire_smoke_loop():
             time.sleep(0.1)
             continue
         try:
-            frame = annotate_fire_smoke_frame(frame)
+            frame = annotate_fire_smoke_frame(frame, CCTV1_FIRE_SOURCE_ID, _fire_smoke_clip_recorder)
         except Exception as exc:
             print(f"[fire_smoke] annotate failed: {exc}")
         if _fire_smoke_clip_recorder:
@@ -1097,6 +1274,68 @@ def fire_smoke_loop():
         if ok:
             with _latest_lock:
                 _latest_fire_smoke_jpeg = buffer.tobytes()
+        elapsed = time.time() - start
+        if interval > 0:
+            time.sleep(max(0.0, interval - elapsed))
+
+
+def fall_loop_secondary():
+    global _latest_fall_jpeg_2
+    interval = 1.0 / FALL_FPS if FALL_FPS > 0 else 0.0
+    encode_params = [int(cv2.IMWRITE_JPEG_QUALITY), UDP_JPEG_QUALITY]
+    while not _shutdown_event.is_set():
+        start = time.time()
+        with _latest_lock:
+            raw_bytes = _latest_raw_jpeg_2
+        if not raw_bytes:
+            time.sleep(0.1)
+            continue
+        image = np.frombuffer(raw_bytes, np.uint8)
+        frame = cv2.imdecode(image, cv2.IMREAD_COLOR)
+        if frame is None:
+            time.sleep(0.1)
+            continue
+        try:
+            frame = annotate_fall_frame(frame, CCTV2_FALL_SOURCE_ID, _fall_clip_recorder_2)
+        except Exception as exc:
+            print(f"[fall2] annotate failed: {exc}")
+        if _fall_clip_recorder_2:
+            _fall_clip_recorder_2.add_frame(frame)
+        ok, buffer = cv2.imencode(".jpg", frame, encode_params)
+        if ok:
+            with _latest_lock:
+                _latest_fall_jpeg_2 = buffer.tobytes()
+        elapsed = time.time() - start
+        if interval > 0:
+            time.sleep(max(0.0, interval - elapsed))
+
+
+def fire_smoke_loop_secondary():
+    global _latest_fire_smoke_jpeg_2
+    interval = 1.0 / FIRE_SMOKE_FPS if FIRE_SMOKE_FPS > 0 else 0.0
+    encode_params = [int(cv2.IMWRITE_JPEG_QUALITY), UDP_JPEG_QUALITY]
+    while not _shutdown_event.is_set():
+        start = time.time()
+        with _latest_lock:
+            raw_bytes = _latest_raw_jpeg_2
+        if not raw_bytes:
+            time.sleep(0.1)
+            continue
+        image = np.frombuffer(raw_bytes, np.uint8)
+        frame = cv2.imdecode(image, cv2.IMREAD_COLOR)
+        if frame is None:
+            time.sleep(0.1)
+            continue
+        try:
+            frame = annotate_fire_smoke_frame(frame, CCTV2_FIRE_SOURCE_ID, _fire_smoke_clip_recorder_2)
+        except Exception as exc:
+            print(f"[fire_smoke2] annotate failed: {exc}")
+        if _fire_smoke_clip_recorder_2:
+            _fire_smoke_clip_recorder_2.add_frame(frame)
+        ok, buffer = cv2.imencode(".jpg", frame, encode_params)
+        if ok:
+            with _latest_lock:
+                _latest_fire_smoke_jpeg_2 = buffer.tobytes()
         elapsed = time.time() - start
         if interval > 0:
             time.sleep(max(0.0, interval - elapsed))
@@ -1117,6 +1356,18 @@ def generate_raw_frames():
     while True:
         with _latest_lock:
             jpeg_bytes = _latest_raw_jpeg
+        if jpeg_bytes:
+            yield (
+                b"--frame\r\n"
+                b"Content-Type: image/jpeg\r\n\r\n" + jpeg_bytes + b"\r\n"
+            )
+        time.sleep(0.05)
+
+
+def generate_raw_frames_secondary():
+    while True:
+        with _latest_lock:
+            jpeg_bytes = _latest_raw_jpeg_2
         if jpeg_bytes:
             yield (
                 b"--frame\r\n"
@@ -1161,6 +1412,19 @@ def generate_test_frames():
         time.sleep(0.05)
 
 
+def build_event_message(task, label):
+    normalized = (label or "").lower()
+    if task == "intruder" or normalized in {"unknown", "intruder"}:
+        return "외부인이 감지되었습니다."
+    if task == "pose" or normalized in FALL_LABEL_KEYWORDS:
+        return "넘어짐이 감지되었습니다."
+    if task == "detect":
+        if "smoke" in normalized or "fire" in normalized:
+            return "화재가 감지되었습니다."
+        return "화재가 감지되었습니다."
+    return "이상행동이 감지되었습니다."
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -1176,6 +1440,16 @@ def video_feed_raw():
     return Response(generate_raw_frames(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
 
+@app.route("/video_feed_cctv1")
+def video_feed_cctv1():
+    return Response(generate_raw_frames(), mimetype="multipart/x-mixed-replace; boundary=frame")
+
+
+@app.route("/video_feed_cctv2")
+def video_feed_cctv2():
+    return Response(generate_raw_frames_secondary(), mimetype="multipart/x-mixed-replace; boundary=frame")
+
+
 @app.route("/video_feed_fall")
 def video_feed_fall():
     return Response(generate_fall_frames(), mimetype="multipart/x-mixed-replace; boundary=frame")
@@ -1184,6 +1458,85 @@ def video_feed_fall():
 @app.route("/video_feed_fire_smoke")
 def video_feed_fire_smoke():
     return Response(generate_fire_smoke_frames(), mimetype="multipart/x-mixed-replace; boundary=frame")
+
+
+@app.route("/camera_status")
+def camera_status():
+    now = time.time()
+    with _latest_lock:
+        last1 = _last_frame_time
+        last2 = _last_frame_time_2
+    return jsonify(
+        {
+            "cctv1": last1 is not None and now - last1 < 2.0,
+            "cctv2": last2 is not None and now - last2 < 2.0,
+        }
+    )
+
+
+@app.route("/event-logs")
+def event_logs():
+    source = request.args.get("source", "").strip()
+    limit_str = request.args.get("limit", "20")
+    try:
+        limit = int(limit_str)
+    except ValueError:
+        limit = 20
+    limit = max(1, min(limit, 100))
+
+    where_clauses = []
+    params = []
+    if source:
+        source_ids = CCTV_SOURCE_MAP.get(source, [source])
+        non_null_sources = [sid for sid in source_ids if sid is not None]
+        clauses = []
+        if non_null_sources:
+            placeholders = ", ".join(["%s"] * len(non_null_sources))
+            clauses.append(f"source_id IN ({placeholders})")
+            params.extend(non_null_sources)
+        if any(sid is None for sid in source_ids):
+            clauses.append("source_id IS NULL")
+        if clauses:
+            where_clauses.append("(" + " OR ".join(clauses) + ")")
+
+    query = (
+        "SELECT id, task, label, score, source_id, payload_json, seen_at, video_path "
+        "FROM ai_event_logs"
+    )
+    if where_clauses:
+        query += " WHERE " + " AND ".join(where_clauses)
+    query += " ORDER BY seen_at DESC LIMIT %s"
+    params.append(limit)
+
+    rows = []
+    with _db_lock:
+        conn = get_db()
+        cur = conn.cursor(dictionary=True)
+        cur.execute(query, params)
+        for row in cur.fetchall():
+            seen_at = row.get("seen_at")
+            if isinstance(seen_at, datetime):
+                seen_at_str = seen_at.strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                seen_at_str = str(seen_at or "")
+            message = build_event_message(row.get("task"), row.get("label"))
+            video_path = row.get("video_path")
+            clip_url = None
+            if video_path and (CLIP_DIR / video_path).exists():
+                clip_url = url_for("serve_clip", filename=video_path)
+            rows.append(
+                {
+                    "id": row.get("id"),
+                    "message": message,
+                    "task": row.get("task"),
+                    "label": row.get("label"),
+                    "seen_at": seen_at_str,
+                    "clip_url": clip_url,
+                }
+            )
+        cur.close()
+        conn.close()
+    return jsonify(rows)
 
 
 @app.route("/test")
@@ -1563,15 +1916,24 @@ if __name__ == "__main__":
     _clip_recorder = ClipRecorder(CLIP_PRE_SECONDS, CLIP_POST_SECONDS)
     _fall_clip_recorder = ClipRecorder(CLIP_PRE_SECONDS, CLIP_POST_SECONDS)
     _fire_smoke_clip_recorder = ClipRecorder(CLIP_PRE_SECONDS, CLIP_POST_SECONDS)
+    _clip_recorder_2 = ClipRecorder(CLIP_PRE_SECONDS, CLIP_POST_SECONDS)
+    _fall_clip_recorder_2 = ClipRecorder(CLIP_PRE_SECONDS, CLIP_POST_SECONDS)
+    _fire_smoke_clip_recorder_2 = ClipRecorder(CLIP_PRE_SECONDS, CLIP_POST_SECONDS)
     listener = threading.Thread(target=event_listener, daemon=True)
     listener.start()
     init_udp_sender()
     camera_thread = threading.Thread(target=camera_loop, daemon=True)
     camera_thread.start()
+    camera2_thread = threading.Thread(target=camera_loop_secondary, daemon=True)
+    camera2_thread.start()
     fall_thread = threading.Thread(target=fall_loop, daemon=True)
     fall_thread.start()
     fire_smoke_thread = threading.Thread(target=fire_smoke_loop, daemon=True)
     fire_smoke_thread.start()
+    fall2_thread = threading.Thread(target=fall_loop_secondary, daemon=True)
+    fall2_thread.start()
+    fire_smoke2_thread = threading.Thread(target=fire_smoke_loop_secondary, daemon=True)
+    fire_smoke2_thread.start()
     init_db()
     refresh_gallery()
     def _shutdown_cleanup():
@@ -1579,6 +1941,9 @@ if __name__ == "__main__":
         with _camera_lock:
             if _camera is not None:
                 _camera.release()
+        with _camera2_lock:
+            if _camera2 is not None:
+                _camera2.release()
         if _udp_sock is not None:
             _udp_sock.close()
         os._exit(0)
