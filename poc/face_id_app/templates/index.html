@@ -2,12 +2,12 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8">
-  <title>관심 요양원 - AI 통합 모니터</title>
+  <title>관심 요양원 - CCTV 모니터</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
-<body>
+<body class="monitor-page">
   <header>
-    <h1>관심 요양원 - AI 통합 모니터</h1>
+    <h1>관심 요양원 - CCTV 모니터</h1>
     <nav>
       <a href="/" class="{% if request.path == '/' %}active{% endif %}">모니터</a>
       <a href="/register" class="{% if request.path == '/register' %}active{% endif %}">등록</a>
@@ -17,27 +17,193 @@
   </header>
 
   <main>
-    <section class="video-card monitor-card">
-      <h2>실시간 모니터링</h2>
-      <div class="video-grid">
-        <div class="video-tile">
-          <img src="/video_feed" alt="Face ID feed" />
-          <p class="video-caption">얼굴 식별</p>
+    <section class="monitor-shell">
+      <div class="monitor-hero">
+        <div>
+          <h2>실시간 CCTV</h2>
+          <p>원본 영상과 이벤트 로그를 함께 확인합니다.</p>
         </div>
-        <div class="video-tile">
-          <img src="/video_feed_fall" alt="Fall detection feed" />
-          <p class="video-caption">넘어짐 감지</p>
+        <div class="tab-buttons" role="tablist" aria-label="CCTV 선택">
+          <button class="tab-button active" role="tab" aria-selected="true" data-tab="cctv1">CCTV 1</button>
+          <button class="tab-button" role="tab" aria-selected="false" data-tab="cctv2">CCTV 2</button>
         </div>
-        <div class="video-tile">
-          <img src="/video_feed_fire_smoke" alt="Fire detection feed" />
-          <p class="video-caption">화재 감지</p>
+      </div>
+
+      <div class="tab-panel active" data-panel="cctv1" role="tabpanel">
+        <div class="monitor-grid">
+          <div class="video-pane" id="cctv1-pane">
+            <div class="pane-header">
+              <div>
+                <h3>원본 영상</h3>
+                <p>Webcam 스트림</p>
+              </div>
+              <span class="pane-chip">LIVE</span>
+            </div>
+            <img src="/video_feed_cctv1" alt="CCTV 1 live feed" class="monitor-video" />
+          </div>
+          <div class="log-pane">
+            <div class="pane-header">
+              <div>
+                <h3>이벤트 로그</h3>
+                <p>감지 이벤트를 쉬운 문장으로 기록합니다.</p>
+              </div>
+              <span class="pane-chip subtle">AUTO</span>
+            </div>
+            <ul class="log-list" data-source="cctv1" id="log-list-cctv1">
+              <li class="log-empty">최근 이벤트가 없습니다.</li>
+            </ul>
+          </div>
         </div>
-        <div class="video-tile">
-          <img src="/video_feed_raw" alt="Anomaly detection feed" />
-          <p class="video-caption">이상행동 감지</p>
+      </div>
+
+      <div class="tab-panel" data-panel="cctv2" role="tabpanel">
+        <div class="monitor-grid">
+          <div class="video-pane" id="cctv2-pane">
+            <div class="pane-header">
+              <div>
+                <h3>원본 영상</h3>
+                <p>USB 카메라 스트림</p>
+              </div>
+              <span class="pane-chip">LIVE</span>
+            </div>
+            <img src="/video_feed_cctv2" alt="CCTV 2 live feed" class="monitor-video" />
+          </div>
+          <div class="log-pane">
+            <div class="pane-header">
+              <div>
+                <h3>이벤트 로그</h3>
+                <p>감지 이벤트를 쉬운 문장으로 기록합니다.</p>
+              </div>
+              <span class="pane-chip subtle">AUTO</span>
+            </div>
+            <ul class="log-list" data-source="cctv2" id="log-list-cctv2">
+              <li class="log-empty">최근 이벤트가 없습니다.</li>
+            </ul>
+          </div>
         </div>
       </div>
     </section>
   </main>
+
+  <script>
+    const tabs = Array.from(document.querySelectorAll(".tab-button"));
+    const panels = Array.from(document.querySelectorAll(".tab-panel"));
+
+    const setActiveTab = (tabId) => {
+      tabs.forEach((tab) => {
+        const isActive = tab.dataset.tab === tabId;
+        tab.classList.toggle("active", isActive);
+        tab.setAttribute("aria-selected", isActive ? "true" : "false");
+      });
+      panels.forEach((panel) => {
+        panel.classList.toggle("active", panel.dataset.panel === tabId);
+      });
+    };
+
+    tabs.forEach((tab) => {
+      tab.addEventListener("click", () => setActiveTab(tab.dataset.tab));
+    });
+
+    const logLists = {
+      cctv1: document.getElementById("log-list-cctv1"),
+      cctv2: document.getElementById("log-list-cctv2"),
+    };
+    const emptyMessage = "최근 이벤트가 없습니다.";
+
+    const lastLogSignature = {
+      cctv1: "",
+      cctv2: "",
+    };
+
+    const buildLogSignature = (logs) => logs
+      .map((log) => [log.id, log.clip_url || "", log.seen_at || ""].join("|"))
+      .join(",");
+
+    const renderLogs = (source, logs) => {
+      const list = logLists[source];
+      if (!list) return;
+      list.innerHTML = "";
+      if (!logs.length) {
+        const emptyItem = document.createElement("li");
+        emptyItem.className = "log-empty";
+        emptyItem.textContent = emptyMessage;
+        list.appendChild(emptyItem);
+        return;
+      }
+      logs.forEach((log) => {
+        const item = document.createElement("li");
+        item.className = "log-item";
+        const message = document.createElement("div");
+        message.className = "log-message";
+        if (log.clip_url) {
+          const link = document.createElement("a");
+          link.href = log.clip_url;
+          link.target = "_blank";
+          link.rel = "noopener";
+          link.className = "log-link";
+          link.textContent = log.message || "";
+          message.appendChild(link);
+        } else {
+          message.textContent = log.message || "";
+        }
+        const meta = document.createElement("div");
+        meta.className = "log-meta";
+        meta.textContent = log.seen_at || "";
+        item.appendChild(message);
+        item.appendChild(meta);
+        list.appendChild(item);
+      });
+    };
+
+    const refreshLogs = async (source) => {
+      try {
+        const response = await fetch(`/event-logs?source=${source}&limit=12`);
+        if (!response.ok) return;
+        const data = await response.json();
+        const signature = buildLogSignature(data);
+        if (signature !== lastLogSignature[source]) {
+          lastLogSignature[source] = signature;
+          renderLogs(source, data);
+        }
+      } catch (error) {}
+    };
+
+    const refreshAll = () => {
+      Object.keys(logLists).forEach((source) => refreshLogs(source));
+    };
+
+    const cctv1Pane = document.getElementById("cctv1-pane");
+    const cctv2Pane = document.getElementById("cctv2-pane");
+
+    const setCameraState = (pane, isOnline) => {
+      if (!pane) return;
+      pane.classList.toggle("offline", !isOnline);
+    };
+
+    const refreshCameraStatus = async () => {
+      try {
+        const response = await fetch("/camera_status");
+        if (!response.ok) return;
+        const data = await response.json();
+        if (typeof data.cctv1 === "boolean") {
+          setCameraState(cctv1Pane, data.cctv1);
+        }
+        if (typeof data.cctv2 === "boolean") {
+          setCameraState(cctv2Pane, data.cctv2);
+        }
+      } catch (error) {}
+    };
+
+    refreshAll();
+    refreshCameraStatus();
+    setInterval(refreshAll, 3000);
+    setInterval(refreshCameraStatus, 1500);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) {
+        refreshAll();
+        refreshCameraStatus();
+      }
+    });
+  </script>
 </body>
 </html>
