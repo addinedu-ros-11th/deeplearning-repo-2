@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>관심 요양원 - AI 통합 모니터</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>관심 요양원 - AI 통합 모니터</h1>
+    <nav>
+      <a href="/" class="{% if request.path == '/' %}active{% endif %}">모니터</a>
+      <a href="/register" class="{% if request.path == '/register' %}active{% endif %}">등록</a>
+      <a href="/test" class="{% if request.path == '/test' %}active{% endif %}">모델 테스트</a>
+      <a href="/ai-logs" class="{% if request.path == '/ai-logs' %}active{% endif %}">AI 로그</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="form-card">
+      <h2>필터</h2>
+      <form method="get">
+        <label>
+          라벨
+          <input type="text" name="label" value="{{ request.args.get('label','') }}">
+        </label>
+        <label>
+          작업
+          <select name="task">
+            <option value="">전체</option>
+            <option value="detect" {% if request.args.get('task') == 'detect' %}selected{% endif %}>detect</option>
+            <option value="pose" {% if request.args.get('task') == 'pose' %}selected{% endif %}>pose</option>
+            <option value="intruder" {% if request.args.get('task') == 'intruder' %}selected{% endif %}>intruder</option>
+          </select>
+        </label>
+        <label>
+          소스
+          <input type="text" name="source_id" value="{{ request.args.get('source_id','') }}">
+        </label>
+        <label>
+          시작일시
+          <input type="datetime-local" name="start" value="{{ request.args.get('start','') }}">
+        </label>
+        <label>
+          종료일시
+          <input type="datetime-local" name="end" value="{{ request.args.get('end','') }}">
+        </label>
+        <button type="submit">조회</button>
+      </form>
+    </section>
+
+    <section class="table-card">
+      <h2>최근 기록</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>작업</th>
+            <th>라벨</th>
+            <th>스코어</th>
+            <th>소스</th>
+            <th>시각</th>
+            <th>영상</th>
+            <th>상세</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            <td>{{ row.task }}</td>
+            <td>{{ row.label or '' }}</td>
+            <td>{% if row.score is not none %}{{ '%.3f'|format(row.score) }}{% endif %}</td>
+            <td>{{ row.source_id or '' }}</td>
+            <td>{{ row.seen_at }}</td>
+            <td>
+              {% if row.video_path %}
+              <a href="{{ url_for('serve_clip', filename=row.video_path) }}" target="_blank">보기</a>
+              {% endif %}
+            </td>
+            <td>{{ row.payload_json or '' }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="6">기록이 없습니다.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  </main>
+</body>
+</html>

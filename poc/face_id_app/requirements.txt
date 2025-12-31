@@ -1,0 +1,7 @@
+flask
+mysql-connector-python
+insightface
+opencv-python
+numpy
+onnxruntime
+yt-dlp

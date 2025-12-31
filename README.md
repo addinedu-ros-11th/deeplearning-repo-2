@@ -10,11 +10,11 @@
 
 이러한 문제를 해결하기 위해, 최근에는 딥러닝 기반 영상 분석 기술을 활용한 \*\*지능형 CCTV(Intelligent CCTV)\*\*가 주목받고 있다. 지능형 CCTV는 영상 속 객체와 행동을 자동으로 인식하고, 위험 상황을 실시간으로 판단함으로써 보다 능동적인 안전 관리가 가능하다.
 
-<img src="https://visionify.ai/images/scenarios/smoke-and-fire-hero.jpg" class="confluence-embedded-image image-center" loading="lazy" width="250" height="250" />
-
-<img src="https://www.quytech.com/blog/wp-content/uploads/2025/07/intelligent-video-monitoring-systems-development.png" class="confluence-embedded-image confluence-external-resource image-center" data-image-src="https://www.quytech.com/blog/wp-content/uploads/2025/07/intelligent-video-monitoring-systems-development.png" loading="lazy" width="250" />
-
-<img src="https://vidiana.ai/wp-content/uploads/2025/08/AI-CCTV-Camera-2.png" class="confluence-embedded-image confluence-external-resource image-center" data-image-src="https://vidiana.ai/wp-content/uploads/2025/08/AI-CCTV-Camera-2.png" loading="lazy" width="250" />
+<p>
+  <img src="runs/train/cctv_fall_laying_pose_v8n/train_batch1.jpg" class="confluence-embedded-image image-center" loading="lazy" width="250" height="250" />
+  <img src="https://www.quytech.com/blog/wp-content/uploads/2025/07/intelligent-video-monitoring-systems-development.png" class="confluence-embedded-image confluence-external-resource image-center" data-image-src="https://www.quytech.com/blog/wp-content/uploads/2025/07/intelligent-video-monitoring-systems-development.png" loading="lazy" width="250" />
+  <img src="https://vidiana.ai/wp-content/uploads/2025/08/AI-CCTV-Camera-2.png" class="confluence-embedded-image confluence-external-resource image-center" data-image-src="https://vidiana.ai/wp-content/uploads/2025/08/AI-CCTV-Camera-2.png" loading="lazy" width="250" />
+</p>
 
 ------------------------------------------------------------------------
 
@@ -93,3 +93,75 @@
 ## 7. 결론
 
 본 프로젝트는 딥러닝 기반 객체 탐지 기술을 활용하여, 기존 CCTV의 한계를 보완하는 **지능형 안전 관리 시스템**을 구현하는 것을 목표로 한다. 제한된 인원과 자원 내에서 실현 가능한 구조를 바탕으로, 실제 현장에서 활용 가능한 응급·비상 상황 감지 시스템의 가능성을 확인하고자 한다.
+
+------------------------------------------------------------------------
+
+## 8. 핵심 기능
+
+### 8-1. 얼굴 인식 (Face ID)
+- 실시간 카메라 프레임에서 얼굴을 검출하고 등록된 인물과 매칭합니다.
+- 유사도 임계값 기반으로 직원/환자/외부인을 구분합니다.
+- 인식 로그와 캡처 이미지를 DB에 저장합니다.
+
+### 8-2. 넘어짐(낙상) 인식
+- YOLO Pose 모델로 사람 자세(키포인트)를 추론합니다.
+- 넘어짐 관련 라벨(예: laying)을 감지하면 화면 표시 및 이벤트 로그를 생성합니다.
+- 이벤트 발생 시 전후 클립을 저장해 재확인할 수 있습니다.
+
+------------------------------------------------------------------------
+
+## 8-3. 데이터셋 출처 및 라이선스
+
+본 프로젝트에서 사용한 "CCTV Incident Dataset - Fall & Lying Down Detection"은 Simuletic에서 제공한 합성 데이터셋입니다.
+
+- Synthetic Nature: This data is computer-generated. No real humans were recorded or harmed.
+- License: CC BY 4.0 (Attribution required)
+
+Citation:
+
+@dataset{simuletic_fall_detection_2025,
+author = {Simuletic Team},
+title = {Simuletic Synthetic Fall & Incident Detection Dataset},
+year = {2025},
+url = {https://simuletic.com}
+}
+
+------------------------------------------------------------------------
+
+## 9. 실습 실행 (Face ID + 낙상 추론 연동)
+
+### 구성 요약
+- 관리 PC: 카메라 캡처 + 웹 서버 + DB + UDP 영상 송출 + 이벤트 수신/클립 저장
+- AI 서버(옆 PC): UDP 영상 수신 + YOLO 추론 + 이벤트 전송
+
+### 네트워크 전제
+- 관리 PC/AI 서버 IP는 환경에 따라 바뀔 수 있습니다.
+- 실행 전 각 PC에서 IP를 확인하세요:
+  - `ip -4 addr` 또는 `nmcli -g IP4.ADDRESS dev show`
+- 방화벽에서 UDP 포트(예: 5001, 6001)가 열려 있어야 합니다.
+
+### 관리 PC 실행
+```bash
+cd /home/<HOST>/dev_ws/deeplearning-repo-2/poc/face_id_app
+python app.py
+```
+
+### Face ID 앱 운영 메모
+- 등록은 "사진 찍기" 또는 사진 업로드로 진행합니다. 등록 페이지에는 웹캠 미리보기와 캡처 미리보기가 있습니다.
+- 미등록 인식 로그는 기본 2초 이상 지속될 때만 기록합니다. 필요 시 `UNKNOWN_MIN_SECONDS` 환경변수로 조정하세요.
+- 이벤트 클립은 브라우저 재생을 위해 저장 후 H.264로 변환됩니다. `ffmpeg`가 필요합니다.
+- 한글 라벨 렌더링을 위해 시스템 폰트(예: NanumGothic)를 사용합니다.
+
+### 실행 및 확인
+- `app.py`에서 얼굴 인식과 낙상 추론이 모두 수행됩니다.
+- 관리 PC에서 `/ai-logs` 페이지를 열면 추론 결과가 저장되어 표시됩니다.
+- 이벤트 발생 시 15초 클립이 저장되고, `/ai-logs`에서 링크로 확인할 수 있습니다.
+
+------------------------------------------------------------------------
+
+<p align="left">
+  <img src="mind_reading.png" alt="관심법 로고" width="220" />
+  <br />
+  <strong>관심법</strong> | 
+  <span>관심 요양원</span>
+</p>

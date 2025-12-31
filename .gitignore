@@ -201,6 +201,12 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 
+# Project data & training artifacts
+data/
+src/runs/
+tools/
+*.mp4
+
 # Marimo
 marimo/_static/
 marimo/_lsp/
