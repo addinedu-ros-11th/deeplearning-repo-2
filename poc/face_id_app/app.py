@@ -64,6 +64,7 @@ UNKNOWN_LOG_DEDUP_SECONDS = 5
 FALL_LOG_DEDUP_SECONDS = 5
 FIRE_SMOKE_LOG_DEDUP_SECONDS = 5
 UNKNOWN_MIN_SECONDS = float(os.getenv("UNKNOWN_MIN_SECONDS", "2.0"))
+FALL_MIN_SECONDS = float(os.getenv("FALL_MIN_SECONDS", "1.5"))
 CAMERA_SOURCE = os.getenv("CAMERA_SOURCE", "auto")
 CAMERA_SOURCE_2 = os.getenv("CAMERA_SOURCE_2", "auto")
 CAMERA_BY_ID_MATCH = os.getenv("CAMERA_BY_ID_MATCH", "").strip()
@@ -143,6 +144,7 @@ _last_unknown_log = {}
 _last_fall_log = {}
 _last_fire_smoke_log = {}
 _unknown_since = {}
+_fall_since = {}
 _clip_recorder = None
 _fall_clip_recorder = None
 _fire_smoke_clip_recorder = None
@@ -874,7 +876,93 @@ def get_fire_smoke_model():
         return _fire_smoke_model
 
 
+def _iou(box_a, box_b):
+    ax1, ay1, ax2, ay2 = box_a
+    bx1, by1, bx2, by2 = box_b
+    inter_x1 = max(ax1, bx1)
+    inter_y1 = max(ay1, by1)
+    inter_x2 = min(ax2, bx2)
+    inter_y2 = min(ay2, by2)
+    inter_w = max(0.0, inter_x2 - inter_x1)
+    inter_h = max(0.0, inter_y2 - inter_y1)
+    inter_area = inter_w * inter_h
+    if inter_area == 0.0:
+        return 0.0
+    area_a = max(0.0, ax2 - ax1) * max(0.0, ay2 - ay1)
+    area_b = max(0.0, bx2 - bx1) * max(0.0, by2 - by1)
+    union = area_a + area_b - inter_area
+    return inter_area / union if union > 0 else 0.0
+
+
+def _center_distance(box_a, box_b):
+    ax1, ay1, ax2, ay2 = box_a
+    bx1, by1, bx2, by2 = box_b
+    acx = (ax1 + ax2) / 2.0
+    acy = (ay1 + ay2) / 2.0
+    bcx = (bx1 + bx2) / 2.0
+    bcy = (by1 + by2) / 2.0
+    return ((acx - bcx) ** 2 + (acy - bcy) ** 2) ** 0.5
+
+
+def _box_size(box):
+    x1, y1, x2, y2 = box
+    return max(0.0, x2 - x1), max(0.0, y2 - y1)
+
+
+def _group_by_overlap(boxes, scores, iou_threshold=0.3, center_threshold=0.45):
+    groups = []
+    for idx, box in enumerate(boxes):
+        matched = False
+        for group in groups:
+            rep_idx = group[0]
+            rep_box = boxes[rep_idx]
+            iou = _iou(box, rep_box)
+            dist = _center_distance(box, rep_box)
+            rep_w, rep_h = _box_size(rep_box)
+            diag = (rep_w ** 2 + rep_h ** 2) ** 0.5
+            near_center = diag > 0 and dist <= diag * center_threshold
+            if iou >= iou_threshold or near_center:
+                group.append(idx)
+                matched = True
+                break
+        if not matched:
+            groups.append([idx])
+    selected = []
+    for group in groups:
+        best_idx = max(group, key=lambda i: scores[i] if scores[i] is not None else -1)
+        selected.append(best_idx)
+    return selected
+
+
+def _draw_pose(frame, keypoints, keypoint_scores=None):
+    if not keypoints:
+        return
+    skeleton = [
+        (0, 1), (1, 2), (2, 3), (3, 4),
+        (1, 5), (5, 6), (6, 7),
+        (1, 8), (8, 9), (9, 10),
+        (8, 11), (11, 12), (12, 13),
+        (0, 14), (0, 15), (14, 16), (15, 17),
+    ]
+    for idx, (x, y) in enumerate(keypoints):
+        if keypoint_scores and keypoint_scores[idx] is not None and keypoint_scores[idx] < 0.3:
+            continue
+        cv2.circle(frame, (int(x), int(y)), 3, (0, 255, 0), -1)
+    for a, b in skeleton:
+        if a >= len(keypoints) or b >= len(keypoints):
+            continue
+        if keypoint_scores:
+            if keypoint_scores[a] is not None and keypoint_scores[a] < 0.3:
+                continue
+            if keypoint_scores[b] is not None and keypoint_scores[b] < 0.3:
+                continue
+        ax, ay = keypoints[a]
+        bx, by = keypoints[b]
+        cv2.line(frame, (int(ax), int(ay)), (int(bx), int(by)), (255, 0, 255), 2)
+
+
 def annotate_fall_frame(frame, source_id, clip_recorder):
+    global _fall_since
     model = get_fall_model()
     if model is None:
         return frame
@@ -882,7 +970,7 @@ def annotate_fall_frame(frame, source_id, clip_recorder):
     if not results:
         return frame
     res = results[0]
-    annotated = res.plot()
+    annotated = frame.copy()
     try:
         names = res.names or {}
         fall_found = False
@@ -893,17 +981,44 @@ def annotate_fall_frame(frame, source_id, clip_recorder):
             cls_list = res.boxes.cls.tolist()
             conf_list = res.boxes.conf.tolist() if res.boxes.conf is not None else [None] * len(cls_list)
             xyxy_list = res.boxes.xyxy.tolist() if res.boxes.xyxy is not None else []
-            for idx, cls_id in enumerate(cls_list):
+            kpts_list = None
+            kconf_list = None
+            if res.keypoints is not None and res.keypoints.xy is not None:
+                kpts_list = res.keypoints.xy.tolist()
+                if getattr(res.keypoints, "conf", None) is not None:
+                    kconf_list = res.keypoints.conf.tolist()
+            scores = [conf if conf is not None else 0.0 for conf in conf_list]
+            keep_indices = _group_by_overlap(xyxy_list, scores, iou_threshold=0.3, center_threshold=0.45)
+            for idx in keep_indices:
+                cls_id = cls_list[idx]
                 label = names.get(int(cls_id), str(int(cls_id)))
                 score = conf_list[idx] if idx < len(conf_list) else None
                 if idx < len(xyxy_list):
                     x1, y1, x2, y2 = xyxy_list[idx]
                     fall_boxes.append([float(x1), float(y1), float(x2), float(y2)])
+                    cv2.rectangle(annotated, (int(x1), int(y1)), (int(x2), int(y2)), (0, 180, 255), 2)
+                    label_text = f"{label} {score:.2f}" if score is not None else label
+                    cv2.putText(
+                        annotated,
+                        label_text,
+                        (int(x1), max(0, int(y1) - 6)),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6,
+                        (0, 180, 255),
+                        2,
+                        cv2.LINE_AA,
+                    )
+                if kpts_list and idx < len(kpts_list):
+                    kpts = kpts_list[idx]
+                    kconf = kconf_list[idx] if kconf_list and idx < len(kconf_list) else None
+                    _draw_pose(annotated, kpts, kconf)
                 if is_fall_event(label):
                     fall_found = True
                     if fall_score is None or (score is not None and score > fall_score):
                         fall_score = score
                         fall_label = label
+        source_key = source_id or "unknown"
+        now_mono = time.monotonic()
         if fall_found:
             cv2.putText(
                 annotated,
@@ -919,9 +1034,14 @@ def annotate_fall_frame(frame, source_id, clip_recorder):
                 fall_label = "fall"
             if fall_score is None:
                 fall_score = 0.0
-            row_id = log_fall_event(fall_label, fall_score, fall_boxes, source_id)
-            if row_id and clip_recorder:
-                clip_recorder.trigger(row_id, fall_label, source_id)
+            if _fall_since.get(source_key) is None:
+                _fall_since[source_key] = now_mono
+            elif now_mono - _fall_since[source_key] >= FALL_MIN_SECONDS:
+                row_id = log_fall_event(fall_label, fall_score, fall_boxes, source_id)
+                if row_id and clip_recorder:
+                    clip_recorder.trigger(row_id, fall_label, source_id)
+        else:
+            _fall_since[source_key] = None
     except Exception as exc:
         print(f"[fall] label overlay failed: {exc}")
     return annotated
