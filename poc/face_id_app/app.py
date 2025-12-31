@@ -528,8 +528,16 @@ def get_camera_secondary():
                 1,
                 exclude,
             )
+            # If no secondary camera found, return None
+            if _camera2_source is None:
+                print("[camera2] No secondary camera found")
+                return None
         if _camera2 is None or not _camera2.isOpened():
             _camera2 = cv2.VideoCapture(_camera2_source)
+            if not _camera2.isOpened():
+                print(f"[camera2] Failed to open camera: {_camera2_source}")
+                _camera2 = None
+                return None
         return _camera2
 
 
@@ -1192,6 +1200,9 @@ def camera_loop_secondary():
     global _latest_raw_jpeg_2
     global _last_frame_time_2
     cam = get_camera_secondary()
+    if cam is None:
+        print("[camera2] No secondary camera available, thread exiting")
+        return
     encode_params = [int(cv2.IMWRITE_JPEG_QUALITY), UDP_JPEG_QUALITY]
     while not _shutdown_event.is_set():
         with _camera2_lock:
@@ -1202,6 +1213,9 @@ def camera_loop_secondary():
                     cam.release()
                     _camera2 = None
                 cam = get_camera_secondary()
+                if cam is None:
+                    print("[camera2] Camera lost and cannot reconnect, thread exiting")
+                    return
             time.sleep(0.2)
             continue
         ok, raw_buffer = cv2.imencode(".jpg", frame, encode_params)
@@ -1936,18 +1950,70 @@ if __name__ == "__main__":
     fire_smoke2_thread.start()
     init_db()
     refresh_gallery()
+    
     def _shutdown_cleanup():
+        print("\n[shutdown] Cleaning up resources...")
         _shutdown_event.set()
-        with _camera_lock:
-            if _camera is not None:
-                _camera.release()
-        with _camera2_lock:
-            if _camera2 is not None:
-                _camera2.release()
+        
+        # Give threads a moment to see the shutdown event
+        print("[shutdown] Waiting for threads...")
+        time.sleep(0.5)
+        
+        # Release cameras with timeout protection
+        print("[shutdown] Releasing cameras...")
+        try:
+            # Try to acquire lock with timeout
+            if _camera_lock.acquire(timeout=1.0):
+                try:
+                    if _camera is not None:
+                        _camera.release()
+                        print("[shutdown] Camera 1 released")
+                finally:
+                    _camera_lock.release()
+            else:
+                print("[shutdown] Camera 1 lock timeout, skipping")
+        except Exception as e:
+            print(f"[shutdown] Camera 1 release error: {e}")
+        
+        try:
+            if _camera2_lock.acquire(timeout=1.0):
+                try:
+                    if _camera2 is not None:
+                        _camera2.release()
+                        print("[shutdown] Camera 2 released")
+                finally:
+                    _camera2_lock.release()
+            else:
+                print("[shutdown] Camera 2 lock timeout, skipping")
+        except Exception as e:
+            print(f"[shutdown] Camera 2 release error: {e}")
+        
         if _udp_sock is not None:
-            _udp_sock.close()
+            try:
+                _udp_sock.close()
+                print("[shutdown] UDP socket closed")
+            except Exception as e:
+                print(f"[shutdown] UDP socket close error: {e}")
+        
+        print("[shutdown] Cleanup complete, forcing exit...")
+    
+    def _signal_handler(sig, frame):
+        print(f"\n[shutdown] Received signal {sig}")
+        _shutdown_cleanup()
+        # Force exit immediately
         os._exit(0)
-    atexit.register(_shutdown_cleanup)
-    signal.signal(signal.SIGINT, lambda *_: _shutdown_cleanup())
-    signal.signal(signal.SIGTERM, lambda *_: _shutdown_cleanup())
-    app.run(host="0.0.0.0", port=5000, debug=True, use_reloader=False)
+    
+    signal.signal(signal.SIGINT, _signal_handler)
+    signal.signal(signal.SIGTERM, _signal_handler)
+    
+    try:
+        print("[startup] Starting Flask server on http://0.0.0.0:5000")
+        app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False, threaded=True)
+    except KeyboardInterrupt:
+        print("\n[shutdown] KeyboardInterrupt caught")
+        _shutdown_cleanup()
+        os._exit(0)
+    except Exception as e:
+        print(f"\n[error] Unexpected error: {e}")
+        _shutdown_cleanup()
+        os._exit(1)
