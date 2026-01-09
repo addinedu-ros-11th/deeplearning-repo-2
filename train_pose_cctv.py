@@ -10,7 +10,7 @@ DATASET_ROOT = (
 )
 DATASET_YAML = f"{DATASET_ROOT}/dataset.yaml"
 PROJECT_DIR = "/home/jm/dev_ws/mind_reading/deeplearning-repo-2/runs/train"
-RUN_NAME = "cctv_fall_laying_pose_v8n"
+RUN_NAME = "cctv_fall_laying_pose_v11m"
 
 
 def update_dataset_yaml(dataset_yaml: Path, root_dir: Path, train_rel: str, val_rel: str) -> None:
@@ -98,8 +98,9 @@ def main():
         val_rel="images/val",
     )
 
-    model_name = "yolov8n-pose.pt"
+    model_name = "yolo11m-pose.pt"  # Use Medium model instead of Extra Large for 6GB GPU
     device = 0 if torch.cuda.is_available() else "cpu"
+    # Use explicit small batch size for 6GB GPU
     batch = 4 if torch.cuda.is_available() else 2
 
     print(f"Using model={model_name}, device={device}, batch={batch}")
