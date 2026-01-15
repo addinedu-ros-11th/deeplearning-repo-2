@@ -2,12 +2,14 @@
 import json
 import threading
 from datetime import datetime, timedelta
+from pathlib import Path
 import cv2
 import numpy as np
+from PIL import Image, ImageDraw, ImageFont
 
 from config import (
     FALL_MODEL_PATH, FALL_CONF, FIRE_SMOKE_MODEL_PATH, FIRE_SMOKE_CONF,
-    FALL_LABEL_KEYWORDS, FALL_LOG_DEDUP_SECONDS, FIRE_SMOKE_LOG_DEDUP_SECONDS
+    FALL_LABEL_KEYWORDS, FALL_LOG_DEDUP_SECONDS, FIRE_SMOKE_LOG_DEDUP_SECONDS, LABEL_FONT_CANDIDATES
 )
 from utils.database import get_db, get_db_lock
 
@@ -20,6 +22,32 @@ _fire_smoke_model_error = None
 _fire_smoke_lock = threading.Lock()
 _last_fall_log = {}
 _last_fire_smoke_log = {}
+_label_font_cache = {}
+
+
+def put_korean_text(img, text, pos, font_size=30, color=(0, 0, 255)):
+    """OpenCV 이미지에 한글 텍스트 추가"""
+    img_pil = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+    draw = ImageDraw.Draw(img_pil)
+    ## 한글 깨짐 임시 수정 - opencv 한글 깨짐 -> PIL로 처리
+    font_size = 18
+    font = _label_font_cache.get(font_size)
+    if font is None:
+        loaded = None
+        for path in LABEL_FONT_CANDIDATES:
+            if Path(path).exists():
+                try:
+                    loaded = ImageFont.truetype(path, font_size)
+                    break
+                except OSError:
+                    continue
+        if loaded is None:
+            loaded = ImageFont.load_default()
+        _label_font_cache[font_size] = loaded
+        font = loaded
+    ##
+    draw.text(pos, text, font=font, fill=color[::-1])  # BGR to RGB
+    return cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
 
 
 def get_fall_model():
@@ -311,16 +339,7 @@ def annotate_fall_frame(frame, source_id, clip_recorder):
                         )
         
         if fall_found:
-            cv2.putText(
-                annotated,
-                "낙상 감지",
-                (10, 30),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.9,
-                (0, 0, 255),
-                2,
-                cv2.LINE_AA,
-            )
+            annotated = put_korean_text(annotated, "낙상 감지", (10, 30), font_size=30, color=(0, 0, 255))
             if fall_label is None:
                 fall_label = "fall"
             if fall_score is None:
@@ -377,16 +396,7 @@ def annotate_fire_smoke_frame(frame, source_id, clip_recorder):
                         fire_smoke_label = label
         
         if fire_smoke_found:
-            cv2.putText(
-                annotated,
-                "화재/연기 감지",
-                (10, 30),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.9,
-                (0, 0, 255),
-                2,
-                cv2.LINE_AA,
-            )
+            annotated = put_korean_text(annotated, "화재/연기 감지", (10, 30), font_size=30, color=(0, 0, 255))
             if fire_smoke_label is None:
                 fire_smoke_label = "fire"
             if fire_smoke_score is None:

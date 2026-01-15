@@ -1,3 +1,5 @@
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning, module="insightface")
 import json
 import os
 import socket
@@ -17,6 +19,11 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_file, url_for
 from insightface.app import FaceAnalysis
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from ultralytics import YOLO  # 이 부분이 누락되면 안 됩니다!
+from collections import deque
 
 
 APP_DIR = Path(__file__).resolve().parent
@@ -80,6 +87,11 @@ FIRE_SMOKE_MODEL_PATH = os.getenv(
 )
 FIRE_SMOKE_CONF = float(os.getenv("FIRE_SMOKE_CONF", "0.5"))
 FIRE_SMOKE_FPS = float(os.getenv("FIRE_SMOKE_FPS", "5.0"))
+FIGHT_MODEL_PATH = os.getenv(
+    "FIGHT_MODEL_PATH",
+    str(REPO_ROOT / "runs" / "train" / "yolo11n-pose_fall_fight" / "weights" / "best_model.pth"),
+)
+
 UDP_VIDEO_TARGETS = os.getenv("UDP_VIDEO_TARGETS", "")
 UDP_JPEG_QUALITY = int(os.getenv("UDP_JPEG_QUALITY", "80"))
 UDP_MAX_DATAGRAM = int(os.getenv("UDP_MAX_DATAGRAM", "1400"))
@@ -91,8 +103,11 @@ UDP_HEADER_SIZE = struct.calcsize(UDP_HEADER_FORMAT)
 CCTV1_FACE_SOURCE_ID = "cctv1_face"
 CCTV1_FALL_SOURCE_ID = "cctv1_fall"
 CCTV1_FIRE_SOURCE_ID = "cctv1_fire"
+CCTV1_FIGHT_SOURCE_ID = "cctv1_fight"
 CCTV2_FACE_SOURCE_ID = "cctv2_face"
 CCTV2_FALL_SOURCE_ID = "cctv2_fall"
+FIGHT_FPS = float(os.getenv("FIGHT_FPS", "5.0"))
+FIGHT_LOG_DEDUP_SECONDS = 5
 CCTV2_FIRE_SOURCE_ID = "cctv2_fire"
 
 CCTV_SOURCE_MAP = {
@@ -100,6 +115,7 @@ CCTV_SOURCE_MAP = {
         CCTV1_FACE_SOURCE_ID,
         CCTV1_FALL_SOURCE_ID,
         CCTV1_FIRE_SOURCE_ID,
+        CCTV1_FIGHT_SOURCE_ID,
         "face_id",
         "fall_cam",
         "fire_smoke_cam",
@@ -142,10 +158,12 @@ _last_log = {}
 _last_unknown_log = {}
 _last_fall_log = {}
 _last_fire_smoke_log = {}
+_last_fight_log = {}
 _unknown_since = {}
 _clip_recorder = None
 _fall_clip_recorder = None
 _fire_smoke_clip_recorder = None
+_fight_clip_recorder = None
 _clip_recorder_2 = None
 _fall_clip_recorder_2 = None
 _fire_smoke_clip_recorder_2 = None
@@ -160,6 +178,7 @@ _latest_raw_jpeg = None
 _latest_raw_jpeg_2 = None
 _latest_fall_jpeg = None
 _latest_fire_smoke_jpeg = None
+_latest_fight_jpeg = None
 _latest_fall_jpeg_2 = None
 _latest_fire_smoke_jpeg_2 = None
 _latest_lock = threading.Lock()
@@ -190,7 +209,29 @@ _test_control_lock = threading.Lock()
 TEST_FPS = float(os.getenv("TEST_FPS", "5.0"))
 TEST_CONF = float(os.getenv("TEST_CONF", str(FALL_CONF)))
 TEST_COOKIE_FILE = TEST_VIDEO_DIR / "cookies.txt"
+class FinalCorrectedModel(nn.Module):
+    def __init__(self, num_classes=3, input_size=85, hidden_size=128):
+        super().__init__()
+        self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_size, num_layers=2, batch_first=True, bidirectional=True)
+        self.attention = nn.Sequential(nn.Linear(hidden_size * 2, 64), nn.Tanh(), nn.Linear(64, 1))
+        self.classifier = nn.Sequential(nn.Dropout(0.5), nn.Linear(hidden_size * 2, 128), nn.ReLU(), 
+                                        nn.Dropout(0.5), nn.Linear(128, 64), nn.ReLU(), 
+                                        nn.Dropout(0.5), nn.Linear(64, num_classes))
 
+    def forward(self, x):
+        lstm_out, _ = self.lstm(x)
+        attn_weights = torch.softmax(self.attention(lstm_out), dim=1)
+        context = torch.sum(attn_weights * lstm_out, dim=1)
+        return self.classifier(context)
+    
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+fight_model = FinalCorrectedModel().to(DEVICE)
+checkpoint = torch.load(FIGHT_MODEL_PATH, map_location=DEVICE)
+state_dict = checkpoint.get('model_state_dict', checkpoint)
+fight_model.load_state_dict(state_dict)
+fight_model.eval()
+yolo_pose_model = YOLO('yolo11n-pose.pt')
 
 class Gallery:
     def __init__(self, embeddings, meta):
@@ -325,6 +366,89 @@ class ClipRecorder:
         os.replace(temp_path, path)
         return True
 
+def fight_loop():
+    global _latest_fight_jpeg
+    buffer = deque(maxlen=30)
+    CLASSES = ['fall', 'fight', 'normal']
+    interval = 1.0 / FIGHT_FPS if FIGHT_FPS > 0 else 0.0
+    encode_params = [int(cv2.IMWRITE_JPEG_QUALITY), UDP_JPEG_QUALITY]
+    
+    print("[fight_loop] 싸움/낙상 감지 스레드가 시작되었습니다.")
+
+    while not _shutdown_event.is_set():
+        start = time.time()
+        with _latest_lock:
+            raw_bytes = _latest_raw_jpeg
+        if not raw_bytes:
+            time.sleep(0.1)
+            continue
+        
+        image = np.frombuffer(raw_bytes, np.uint8)
+        frame = cv2.imdecode(image, cv2.IMREAD_COLOR)
+        if frame is None:
+            time.sleep(0.1)
+            continue
+        
+        try:
+            # YOLO Pose 추론 (사람의 관절 좌표 추출)
+            results = yolo_pose_model(frame, verbose=False)
+            
+            fight_detected = False
+            for r in results:
+                if r.keypoints is not None and len(r.keypoints.data) > 0:
+                    kpts = r.keypoints.data[0].cpu().numpy()
+                    buffer.append(kpts)
+
+                    # 30프레임이 쌓였을 때만 LSTM 모델 실행
+                    if len(buffer) == 30:
+                        print("[fight_loop] 30프레임이 쌓여 LSTM 모델을 실행합니다.")
+                        sequence = np.array(list(buffer))
+                        nose = sequence[:, 0:1, :2].copy()
+                        sequence[:, :, :2] -= nose
+                        
+                        v = np.zeros_like(sequence[:, :, :2])
+                        v[1:] = sequence[1:, :, :2] - sequence[:-1, :, :2]
+                        
+                        combined = np.concatenate([sequence, v], axis=-1).reshape(30, -1)
+                        input_tensor = torch.FloatTensor(combined).unsqueeze(0).to(DEVICE)
+
+                        with torch.no_grad():
+                            out = fight_model(input_tensor)
+                            prob = F.softmax(out, dim=1)
+                            conf, idx = torch.max(prob, dim=1)
+                            label = CLASSES[idx.item()]
+
+                            # 싸움(fight)이 감지되고 확신도가 80% 이상일 때
+                            if label == 'fight' and conf.item() > 0.8:
+                                fight_detected = True
+                                cv2.putText(
+                                    frame,
+                                    f"FIGHT DETECTED {conf.item()*100:.1f}%",
+                                    (10, 30),
+                                    cv2.FONT_HERSHEY_SIMPLEX,
+                                    0.9,
+                                    (0, 0, 255),
+                                    2,
+                                    cv2.LINE_AA,
+                                )
+                                row_id = log_fight_event(label, conf.item(), CCTV1_FIGHT_SOURCE_ID)
+                                if row_id and _fight_clip_recorder:
+                                    _fight_clip_recorder.trigger(row_id, label, CCTV1_FIGHT_SOURCE_ID)
+                                print(f"!!! [위험] 싸움 발생 감지: {conf.item()*100:.1f}% !!!")
+        except Exception as exc:
+            print(f"[fight] annotate failed: {exc}")
+        
+        if _fight_clip_recorder:
+            _fight_clip_recorder.add_frame(frame)
+        
+        ok, buffer_jpg = cv2.imencode(".jpg", frame, encode_params)
+        if ok:
+            with _latest_lock:
+                _latest_fight_jpeg = buffer_jpg.tobytes()
+        
+        elapsed = time.time() - start
+        if interval > 0:
+            time.sleep(max(0.0, interval - elapsed))
 
 def parse_udp_targets(value):
     targets = []
@@ -751,6 +875,42 @@ def log_fall_event(label, score, boxes, source_id):
         cur.close()
         conn.close()
     _last_fall_log[source_key] = now
+    return row_id
+
+
+def log_fight_event(label, score, source_id):
+    global _last_fight_log
+    now = datetime.now()
+    source_key = source_id or "unknown"
+    last_seen = _last_fight_log.get(source_key)
+    if last_seen and now - last_seen < timedelta(seconds=FIGHT_LOG_DEDUP_SECONDS):
+        return None
+    payload = {
+        "label": label,
+        "score": float(score),
+    }
+    row_id = None
+    with _db_lock:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO ai_event_logs (task, label, score, source_id, payload_json, seen_at)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (
+                "fight",
+                label,
+                float(score),
+                source_id,
+                json.dumps(payload, ensure_ascii=True),
+                now,
+            ),
+        )
+        row_id = cur.lastrowid
+        cur.close()
+        conn.close()
+    _last_fight_log[source_key] = now
     return row_id
 
 
@@ -1643,6 +1803,8 @@ def build_event_message(task, label):
         return "외부인이 감지되었습니다."
     if task == "pose" or normalized in FALL_LABEL_KEYWORDS:
         return "넘어짐이 감지되었습니다."
+    if task == "fight" or normalized == "fight":
+        return "싸움이 감지되었습니다."
     if task == "detect":
         if "smoke" in normalized or "fire" in normalized:
             return "화재가 감지되었습니다."
@@ -2147,24 +2309,27 @@ if __name__ == "__main__":
     _clip_recorder = ClipRecorder(CLIP_PRE_SECONDS, CLIP_POST_SECONDS)
     _fall_clip_recorder = ClipRecorder(CLIP_PRE_SECONDS, CLIP_POST_SECONDS)
     _fire_smoke_clip_recorder = ClipRecorder(CLIP_PRE_SECONDS, CLIP_POST_SECONDS)
-    _clip_recorder_2 = ClipRecorder(CLIP_PRE_SECONDS, CLIP_POST_SECONDS)
-    _fall_clip_recorder_2 = ClipRecorder(CLIP_PRE_SECONDS, CLIP_POST_SECONDS)
-    _fire_smoke_clip_recorder_2 = ClipRecorder(CLIP_PRE_SECONDS, CLIP_POST_SECONDS)
-    listener = threading.Thread(target=event_listener, daemon=True)
-    listener.start()
-    init_udp_sender()
+    _fight_clip_recorder = ClipRecorder(CLIP_PRE_SECONDS, CLIP_POST_SECONDS)
+    # _clip_recorder_2 = ClipRecorder(CLIP_PRE_SECONDS, CLIP_POST_SECONDS)
+    # _fall_clip_recorder_2 = ClipRecorder(CLIP_PRE_SECONDS, CLIP_POST_SECONDS)
+    # _fire_smoke_clip_recorder_2 = ClipRecorder(CLIP_PRE_SECONDS, CLIP_POST_SECONDS)
+    # listener = threading.Thread(target=event_listener, daemon=True)
+    # listener.start()
+    # init_udp_sender()
     camera_thread = threading.Thread(target=camera_loop, daemon=True)
     camera_thread.start()
-    camera2_thread = threading.Thread(target=camera_loop_secondary, daemon=True)
-    camera2_thread.start()
-    fall_thread = threading.Thread(target=fall_loop, daemon=True)
-    fall_thread.start()
-    fire_smoke_thread = threading.Thread(target=fire_smoke_loop, daemon=True)
-    fire_smoke_thread.start()
-    fall2_thread = threading.Thread(target=fall_loop_secondary, daemon=True)
-    fall2_thread.start()
-    fire_smoke2_thread = threading.Thread(target=fire_smoke_loop_secondary, daemon=True)
-    fire_smoke2_thread.start()
+    # camera2_thread = threading.Thread(target=camera_loop_secondary, daemon=True)
+    # camera2_thread.start()
+    # fall_thread = threading.Thread(target=fall_loop, daemon=True)
+    # fall_thread.start()
+    # fire_smoke_thread = threading.Thread(target=fire_smoke_loop, daemon=True)
+    # fire_smoke_thread.start()
+    # fall2_thread = threading.Thread(target=fall_loop_secondary, daemon=True)
+    # fall2_thread.start()
+    # fire_smoke2_thread = threading.Thread(target=fire_smoke_loop_secondary, daemon=True)
+    # fire_smoke2_thread.start()
+    fight_thread = threading.Thread(target=fight_loop, daemon=True)
+    fight_thread.start()
     init_db()
     refresh_gallery()
     
