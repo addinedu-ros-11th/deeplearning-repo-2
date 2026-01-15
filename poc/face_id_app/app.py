@@ -64,14 +64,13 @@ UNKNOWN_LOG_DEDUP_SECONDS = 5
 FALL_LOG_DEDUP_SECONDS = 5
 FIRE_SMOKE_LOG_DEDUP_SECONDS = 5
 UNKNOWN_MIN_SECONDS = float(os.getenv("UNKNOWN_MIN_SECONDS", "2.0"))
-FALL_MIN_SECONDS = float(os.getenv("FALL_MIN_SECONDS", "1.5"))
 CAMERA_SOURCE = os.getenv("CAMERA_SOURCE", "auto")
 CAMERA_SOURCE_2 = os.getenv("CAMERA_SOURCE_2", "auto")
 CAMERA_BY_ID_MATCH = os.getenv("CAMERA_BY_ID_MATCH", "").strip()
 CAMERA2_BY_ID_MATCH = os.getenv("CAMERA2_BY_ID_MATCH", "").strip()
 FALL_MODEL_PATH = os.getenv(
     "FALL_MODEL_PATH",
-    str(REPO_ROOT / "runs" / "train" / "cctv_fall_laying_pose_v8n" / "weights" / "best.pt"),
+    "yolo11n-pose.pt", # Use standard YOLOv8/11 Pose model (auto-download)
 )
 FALL_CONF = float(os.getenv("FALL_CONF", "0.5"))
 FALL_FPS = float(os.getenv("FALL_FPS", "5.0"))
@@ -144,7 +143,6 @@ _last_unknown_log = {}
 _last_fall_log = {}
 _last_fire_smoke_log = {}
 _unknown_since = {}
-_fall_since = {}
 _clip_recorder = None
 _fall_clip_recorder = None
 _fire_smoke_clip_recorder = None
@@ -847,12 +845,15 @@ def get_fall_model():
             _fall_model_error = exc
             print(f"[fall] ultralytics import failed: {exc}")
             return None
-        model_path = Path(FALL_MODEL_PATH)
-        if not model_path.exists():
-            _fall_model_error = f"missing model: {model_path}"
-            print(f"[fall] model not found: {model_path}")
+        
+        # Allow automatic download by Ultralytics if file doesn't exist locally
+        try:
+            _fall_model = YOLO(str(FALL_MODEL_PATH))
+        except Exception as exc:
+            _fall_model_error = f"failed to load model: {FALL_MODEL_PATH} ({exc})"
+            print(f"[fall] model load failed: {FALL_MODEL_PATH}, {exc}")
             return None
-        _fall_model = YOLO(str(model_path))
+            
         return _fall_model
 
 
@@ -874,7 +875,6 @@ def get_fire_smoke_model():
             return None
         _fire_smoke_model = YOLO(str(model_path))
         return _fire_smoke_model
-
 
 def _iou(box_a, box_b):
     ax1, ay1, ax2, ay2 = box_a
@@ -961,8 +961,47 @@ def _draw_pose(frame, keypoints, keypoint_scores=None):
         cv2.line(frame, (int(ax), int(ay)), (int(bx), int(by)), (255, 0, 255), 2)
 
 
+def check_fall_rule(bbox, keypoints_xy, keypoints_conf):
+    """Rule-based fall detection using BBox and Keypoints."""
+    x1, y1, x2, y2 = bbox
+    w = x2 - x1
+    h = y2 - y1
+
+    # [Pre-check] 상반신 클로즈업 오탐지 방지
+    # 골반(Hip)이 보이지 않거나 신뢰도가 낮으면 "판단 불가"로 간주 (즉, 낙상 아님)
+    # Keypoints: 11=L_Hip, 12=R_Hip
+    has_hips = False
+    if len(keypoints_conf) >= 13:
+        if keypoints_conf[11] > 0.4 or keypoints_conf[12] > 0.4:
+            has_hips = True
+
+    if not has_hips:
+        return False  # 골반이 안 보이면(상반신 샷 등) 낙상 판단을 하지 않음
+
+    # Rule 1: Aspect Ratio (Width > Height * 0.9)
+    if w > h * 0.9:
+        return True
+
+    # Rule 2/3: Torso Angle & Inverted Torso
+    # Keypoints: 5=L_Shoulder, 6=R_Shoulder, 11=L_Hip, 12=R_Hip
+    if len(keypoints_xy) >= 13:
+        if (keypoints_conf[5] > 0.5 and keypoints_conf[6] > 0.5 and
+            keypoints_conf[11] > 0.5 and keypoints_conf[12] > 0.5):
+            shoulder_y = (keypoints_xy[5][1] + keypoints_xy[6][1]) / 2
+            hip_y = (keypoints_xy[11][1] + keypoints_xy[12][1]) / 2
+            # In image coordinates, larger Y is lower.
+            if shoulder_y > hip_y:
+                return True
+
+            vertical_dist = abs(shoulder_y - hip_y)
+            if h > 0:
+                rel_dist = vertical_dist / h
+                if rel_dist < 0.2:
+                    return True
+
+    return False
+
 def annotate_fall_frame(frame, source_id, clip_recorder):
-    global _fall_since
     model = get_fall_model()
     if model is None:
         return frame
@@ -970,53 +1009,68 @@ def annotate_fall_frame(frame, source_id, clip_recorder):
     if not results:
         return frame
     res = results[0]
-    annotated = frame.copy()
+    annotated = res.plot()
     try:
         names = res.names or {}
         fall_found = False
         fall_label = None
-        fall_score = None
+        fall_score = 0.0
         fall_boxes = []
+        kpts_list = None
+        kconf_list = None
+        if res.keypoints is not None and res.keypoints.xy is not None:
+            kpts_list = res.keypoints.xy.tolist()
+            if getattr(res.keypoints, "conf", None) is not None:
+                kconf_list = res.keypoints.conf.tolist()
         if res.boxes is not None and res.boxes.cls is not None:
             cls_list = res.boxes.cls.tolist()
             conf_list = res.boxes.conf.tolist() if res.boxes.conf is not None else [None] * len(cls_list)
             xyxy_list = res.boxes.xyxy.tolist() if res.boxes.xyxy is not None else []
-            kpts_list = None
-            kconf_list = None
-            if res.keypoints is not None and res.keypoints.xy is not None:
-                kpts_list = res.keypoints.xy.tolist()
-                if getattr(res.keypoints, "conf", None) is not None:
-                    kconf_list = res.keypoints.conf.tolist()
-            scores = [conf if conf is not None else 0.0 for conf in conf_list]
-            keep_indices = _group_by_overlap(xyxy_list, scores, iou_threshold=0.3, center_threshold=0.45)
-            for idx in keep_indices:
-                cls_id = cls_list[idx]
+            for idx, cls_id in enumerate(cls_list):
                 label = names.get(int(cls_id), str(int(cls_id)))
                 score = conf_list[idx] if idx < len(conf_list) else None
-                if idx < len(xyxy_list):
-                    x1, y1, x2, y2 = xyxy_list[idx]
-                    fall_boxes.append([float(x1), float(y1), float(x2), float(y2)])
-                    cv2.rectangle(annotated, (int(x1), int(y1)), (int(x2), int(y2)), (0, 180, 255), 2)
-                    label_text = f"{label} {score:.2f}" if score is not None else label
-                    cv2.putText(
-                        annotated,
-                        label_text,
-                        (int(x1), max(0, int(y1) - 6)),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.6,
-                        (0, 180, 255),
-                        2,
-                        cv2.LINE_AA,
-                    )
+                if idx >= len(xyxy_list):
+                    continue
+                x1, y1, x2, y2 = xyxy_list[idx]
+                fall_boxes.append([float(x1), float(y1), float(x2), float(y2)])
+                cv2.rectangle(annotated, (int(x1), int(y1)), (int(x2), int(y2)), (0, 180, 255), 2)
+                label_text = f"{label} {score:.2f}" if score is not None else label
+                cv2.putText(
+                    annotated,
+                    label_text,
+                    (int(x1), max(0, int(y1) - 6)),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    (0, 180, 255),
+                    2,
+                    cv2.LINE_AA,
+                )
+                rule_match = False
                 if kpts_list and idx < len(kpts_list):
                     kpts = kpts_list[idx]
                     kconf = kconf_list[idx] if kconf_list and idx < len(kconf_list) else None
                     _draw_pose(annotated, kpts, kconf)
-                if is_fall_event(label):
+                    if kconf is None:
+                        kconf = [1.0] * len(kpts)
+                    rule_match = check_fall_rule([x1, y1, x2, y2], kpts, kconf)
+                if rule_match or is_fall_event(label):
                     fall_found = True
-                    if fall_score is None or (score is not None and score > fall_score):
+                    fall_label = "fall" if rule_match else label
+                    if score is not None and score > fall_score:
                         fall_score = score
-                        fall_label = label
+                        fall_label = "fall" if rule_match else label
+                    if rule_match:
+                        cv2.rectangle(annotated, (int(x1), int(y1)), (int(x2), int(y2)), (0, 0, 255), 2)
+                        cv2.putText(
+                            annotated,
+                            f"FALL {score:.2f}" if score is not None else "FALL",
+                            (int(x1), max(0, int(y1) - 10)),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.6,
+                            (0, 0, 255),
+                            2,
+                            cv2.LINE_AA,
+                        )
         source_key = source_id or "unknown"
         now_mono = time.monotonic()
         if fall_found:
@@ -1034,16 +1088,13 @@ def annotate_fall_frame(frame, source_id, clip_recorder):
                 fall_label = "fall"
             if fall_score is None:
                 fall_score = 0.0
-            if _fall_since.get(source_key) is None:
-                _fall_since[source_key] = now_mono
-            elif now_mono - _fall_since[source_key] >= FALL_MIN_SECONDS:
-                row_id = log_fall_event(fall_label, fall_score, fall_boxes, source_id)
-                if row_id and clip_recorder:
-                    clip_recorder.trigger(row_id, fall_label, source_id)
-        else:
-            _fall_since[source_key] = None
+            row_id = log_fall_event(fall_label, fall_score, fall_boxes, source_id)
+            if row_id and clip_recorder:
+                clip_recorder.trigger(row_id, fall_label, source_id)
     except Exception as exc:
-        print(f"[fall] label overlay failed: {exc}")
+        print(f"[fall] rule-based label overlay failed: {exc}")
+        import traceback
+        traceback.print_exc()
     return annotated
 
 
@@ -1150,18 +1201,21 @@ def _get_video_stream_source(path_str):
     return None, f"file not found: {path_str}"
 
 
-def _start_test_stream(youtube_url, model_path):
+def _start_test_stream(youtube_url, model_path, conf=None):
     global _test_thread, _test_source_url, _test_model_path
 
     if _test_thread and _test_thread.is_alive():
         _stop_test_stream()
+
+    if conf is None:
+        conf = TEST_CONF
 
     _test_stop_event.clear()
     _test_source_url = youtube_url
     _test_model_path = model_path
     thread = threading.Thread(
         target=_test_loop,
-        args=(youtube_url, model_path, TEST_CONF, TEST_FPS),
+        args=(youtube_url, model_path, conf, TEST_FPS),
         daemon=True,
     )
     _test_thread = thread
@@ -1175,6 +1229,41 @@ def _stop_test_stream():
         _test_thread.join(timeout=2.0)
     _test_thread = None
     _set_test_status("stopped", "stream stopped")
+
+
+def _draw_test_fall_result(results, annotated):
+    """Helper to draw fall detection result on test stream"""
+    res = results[0]
+    if res.boxes is not None:
+        boxes = res.boxes
+        keypoints = res.keypoints
+        for idx, box in enumerate(boxes):
+            xyxy = box.xyxy[0].tolist()
+            x1, y1, x2, y2 = map(int, xyxy)
+            score = float(box.conf[0])
+            
+            kpts_xy = []
+            kpts_conf = []
+            if keypoints is not None and keypoints.xy is not None:
+                if idx < len(keypoints.xy):
+                    kpts_xy = keypoints.xy[idx].tolist()
+                    if keypoints.conf is not None:
+                        kpts_conf = keypoints.conf[idx].tolist()
+                    else:
+                        kpts_conf = [1.0] * len(kpts_xy)
+
+            if check_fall_rule(xyxy, kpts_xy, kpts_conf):
+                cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 0, 255), 4)
+                cv2.putText(
+                    annotated, 
+                    f"FALL (Test) {score:.2f}", 
+                    (x1, y1 - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 
+                    0.8, 
+                    (0, 0, 255), 
+                    2
+                )
+    return annotated
 
 
 def _test_loop(youtube_url, model_path, conf, fps):
@@ -1230,6 +1319,7 @@ def _test_loop(youtube_url, model_path, conf, fps):
                 results = model.predict(frame, conf=conf, verbose=False)
                 if results:
                     annotated = results[0].plot()
+                    _draw_test_fall_result(results, annotated)
                 else:
                     annotated = frame
                 ok, buffer = cv2.imencode(
@@ -1260,6 +1350,7 @@ def _test_loop(youtube_url, model_path, conf, fps):
         results = model.predict(frame, conf=conf, verbose=False)
         if results:
             annotated = results[0].plot()
+            _draw_test_fall_result(results, annotated)
         else:
             annotated = frame
 
@@ -1720,6 +1811,11 @@ def test_seek():
 def test_start():
     video_source = request.form.get("video_source", "").strip()
     model_path = request.form.get("model_path", "").strip()
+    try:
+        test_conf = float(request.form.get("test_conf", str(TEST_CONF)))
+    except ValueError:
+        test_conf = TEST_CONF
+
     if not video_source or not model_path:
         return render_template(
             "test.html",
@@ -1727,12 +1823,13 @@ def test_start():
             model_path=model_path or FALL_MODEL_PATH,
             video_source=video_source,
             download_message="",
-            test_conf=TEST_CONF,
+            test_conf=test_conf,
             test_fps=TEST_FPS,
         )
     _start_test_stream(
         video_source,
         model_path,
+        conf=test_conf
     )
     return redirect(url_for("test_page"))
 

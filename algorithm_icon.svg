@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320" viewBox="0 0 320 320">
+  <defs>
+    <style>
+      .bg { fill: #ffffff; }
+      .line { stroke: #1e40af; stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+      .accent { stroke: #10b981; stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+      .dot { fill: #0ea5e9; }
+      .node { fill: #10b981; }
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="320" height="320" />
+
+  <!-- Code brackets -->
+  <path class="line" d="M120 90 L90 160 L120 230" />
+  <path class="line" d="M200 90 L230 160 L200 230" />
+
+  <!-- Flow dots -->
+  <circle class="dot" cx="160" cy="115" r="7" />
+  <circle class="dot" cx="160" cy="160" r="7" />
+  <circle class="dot" cx="160" cy="205" r="7" />
+
+  <!-- Logic lines -->
+  <line class="accent" x1="160" y1="122" x2="160" y2="153" />
+  <line class="accent" x1="160" y1="167" x2="160" y2="198" />
+
+  <!-- Decision node -->
+  <rect class="accent" x="140" y="240" width="40" height="40" rx="6" />
+  <circle class="node" cx="160" cy="260" r="6" />
+</svg>

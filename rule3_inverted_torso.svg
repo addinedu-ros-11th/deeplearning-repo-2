@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="520" viewBox="0 0 1200 520">
+  <defs>
+    <style>
+      .bg { fill: #ffffff; }
+      .line { stroke: #111111; stroke-width: 2; fill: none; }
+      .thin { stroke: #333333; stroke-width: 1.5; fill: none; }
+      .text { fill: #111111; font-family: "Noto Sans KR", "Malgun Gothic", sans-serif; font-size: 22px; }
+      .small { fill: #333333; font-family: "Noto Sans KR", "Malgun Gothic", sans-serif; font-size: 19px; }
+      .label { fill: #111111; font-family: "Noto Sans KR", "Malgun Gothic", sans-serif; font-size: 24px; font-weight: 600; }
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1200" height="520" />
+
+  <!-- Title -->
+  <text class="label" x="420" y="70">[ 토르소 역전 : Inverted Torso ]</text>
+  <text class="small" x="360" y="100">(카메라 정면/후면으로 거꾸로 넘어진 상황)</text>
+
+  <!-- Vertical reference line -->
+  <line class="thin" x1="600" y1="170" x2="600" y2="350" />
+
+  <!-- Center cross line -->
+  <line class="thin" x1="520" y1="260" x2="680" y2="260" />
+
+  <!-- Hip (top) -->
+  <circle class="line" cx="600" cy="190" r="18" />
+  <text class="text" x="640" y="195">&lt;---- [골반: Hip] (위쪽 = Y 작음)</text>
+
+  <!-- Shoulder (bottom) -->
+  <circle class="line" cx="600" cy="330" r="18" />
+  <text class="text" x="640" y="335">&lt;---- [어깨: Shoulder] (아래쪽 = Y 큼)</text>
+
+  <!-- Result -->
+  <text class="text" x="440" y="430">▶ 판정: Shoulder_Y &gt; Hip_Y</text>
+  <text class="text" x="440" y="460">▶ 결과: FALL</text>
+</svg>

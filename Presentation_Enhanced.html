@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AI 안전 모니터링 시스템 발표 자료 (Draft)</title>
+    <style>
+      :root {
+        --bg: #f2f4f8;
+        --ink: #0f1a2b;
+        --accent: #ff7f3f;
+        --accent-2: #1a4a8b;
+        --paper: #ffffff;
+        --shadow: rgba(15, 26, 43, 0.16);
+        --muted: #5a6372;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: "IBM Plex Sans KR", "Spoqa Han Sans Neo", "Pretendard", sans-serif;
+        background: radial-gradient(circle at 15% 15%, #ffffff, #eef2f6 60%, #e7ecf3);
+        color: var(--ink);
+      }
+      .deck {
+        display: flex;
+        flex-direction: column;
+        gap: 48px;
+        padding: 48px 32px 72px;
+      }
+      .slide {
+        background: var(--paper);
+        border-radius: 28px;
+        box-shadow: 0 22px 50px var(--shadow);
+        padding: 48px 56px;
+        min-height: 70vh;
+        aspect-ratio: 16 / 9;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-start;
+        position: relative;
+        overflow: hidden;
+        animation: floatIn 0.6s ease both;
+      }
+      .cover {
+        background: linear-gradient(135deg, #0f213a 0%, #193458 55%, #132a45 100%);
+        color: #fef6ee;
+        position: relative;
+        overflow: hidden;
+      }
+      .cover::after {
+        content: "";
+        position: absolute;
+        width: 420px;
+        height: 420px;
+        border-radius: 50%;
+        background: rgba(233, 115, 63, 0.18);
+        right: -140px;
+        top: -120px;
+      }
+      .cover h1 {
+        font-size: clamp(2.6rem, 4vw, 4rem);
+        margin: 0 0 18px;
+        letter-spacing: 0.02em;
+      }
+      .cover blockquote {
+        border-left: 4px solid var(--accent);
+        padding-left: 16px;
+        margin: 12px 0;
+        font-size: 1.05rem;
+        color: #f8ead8;
+      }
+      header {
+        margin-bottom: 24px;
+      }
+      .meta {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .kicker {
+        font-size: 0.85rem;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      header h2 {
+        font-size: clamp(2rem, 3vw, 3rem);
+        margin: 0 0 12px;
+        color: var(--accent-2);
+      }
+      .subtitle {
+        font-size: 1.1rem;
+        color: var(--muted);
+        font-weight: 600;
+      }
+      .bar {
+        height: 6px;
+        width: 120px;
+        background: var(--accent);
+        border-radius: 999px;
+      }
+      h3 {
+        margin: 22px 0 8px;
+        font-size: 1.4rem;
+        color: var(--accent-2);
+      }
+      p, li {
+        font-size: 1.1rem;
+        line-height: 1.65;
+      }
+      ul, ol {
+        margin: 10px 0 18px 22px;
+      }
+      blockquote {
+        margin: 18px 0;
+        padding: 12px 18px;
+        background: #f6efe7;
+        border-left: 4px solid var(--accent);
+        font-size: 1.05rem;
+      }
+      code {
+        background: #f2e6d7;
+        padding: 2px 6px;
+        border-radius: 6px;
+        font-family: "Fira Code", "Nanum Gothic Coding", monospace;
+        font-size: 0.95rem;
+      }
+      pre {
+        background: #101c2a;
+        color: #f8efe7;
+        padding: 18px;
+        border-radius: 14px;
+        overflow-x: auto;
+        font-size: 0.95rem;
+      }
+      .spacer {
+        height: 10px;
+      }
+      @keyframes floatIn {
+        from {
+          opacity: 0;
+          transform: translateY(12px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      @media (max-width: 900px) {
+        .slide {
+          padding: 36px 28px;
+          min-height: auto;
+        }
+        .deck {
+          padding: 32px 18px 48px;
+        }
+      }
+      @media print {
+        body {
+          background: #ffffff;
+        }
+        .deck {
+          gap: 0;
+          padding: 0;
+        }
+        .slide {
+          page-break-after: always;
+          box-shadow: none;
+          border-radius: 0;
+          min-height: auto;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="deck">
+      <section class="slide cover">
+        <h1>AI 안전 모니터링 시스템 발표 자료 (Draft)</h1>
+        <div class="spacer"></div>
+<blockquote><strong>작성일</strong>: 2026년 1월 8일</blockquote>
+<blockquote><strong>주제</strong>: 얼굴 인식 및 하이브리드 낙상 감지 시스템</blockquote>
+<blockquote><strong>팀</strong>: 안심가디언(ANSIM_GUARDIAN)</blockquote>
+<div class="spacer"></div>
+      </section>
+      
+                <section class="slide">
+                  <header>
+                    <div class="meta">
+                      <span class="kicker">SLIDE 01</span>
+                      <h2>프로젝트 핵심 소개 (Overview)</h2>
+                      
+                    </div>
+                    <div class="bar"></div>
+                  </header>
+                  <div class="content">
+                    <ul><li><strong>&quot;누구인가?&quot;</strong>: InsightFace를 활용한 0.2초 초고속 신원 확인</li><li><strong>&quot;위험한가?&quot;</strong>: YOLOv11 Pose 추정 + 생체역학(Biomechanics) 알고리즘 결합</li><li><strong>&quot;효율적인가?&quot;</strong>: 경량 모델 + 기하학적 룰로 실시간성 확보</li></ul>
+<div class="spacer"></div>
+                  </div>
+                </section>
+                
+                <section class="slide">
+                  <header>
+                    <div class="meta">
+                      <span class="kicker">SLIDE 02</span>
+                      <h2>기술적 난제: 데이터 부족과 오버피팅</h2>
+                      
+                    </div>
+                    <div class="bar"></div>
+                  </header>
+                  <div class="content">
+                    <ul><li><strong>초기 시도</strong>: 낙상 이미지로 YOLO Object Detection 학습</li><li><strong>한계</strong>:</li><li>CCTV 각도(High-angle)에 맞는 낙상 데이터 부족</li><li>특정 자세로 과적합(Overfitting) 발생</li><li>학습 비용과 시간 과다</li></ul>
+<div class="spacer"></div>
+                  </div>
+                </section>
+                
+                <section class="slide">
+                  <header>
+                    <div class="meta">
+                      <span class="kicker">SLIDE 03</span>
+                      <h2>해결 전략: AI + Rule-Based 하이브리드</h2>
+                      
+                    </div>
+                    <div class="bar"></div>
+                  </header>
+                  <div class="content">
+                    <ul><li>AI는 <strong>관절 위치(Skeleton) 검출</strong>만 수행</li><li><strong>판단은 알고리즘(Code)</strong>이 수행</li><li><strong>YOLOv11 Nano Pose 선택 이유</strong></li><li>대규모 데이터로 사람 형태 학습 완료</li><li>재학습 없이 즉시 투입 가능</li></ul>
+                  </div>
+                </section>
+                
+                <section class="slide">
+                  <header>
+                    <div class="meta">
+                      <span class="kicker">SLIDE 04</span>
+                      <h2>해결 전략: AI + Rule-Based 하이브리드</h2>
+                      
+                    </div>
+                    <div class="bar"></div>
+                  </header>
+                  <div class="content">
+                    <ul><li>경량 모델로 60 FPS 이상 확보</li></ul>
+<div class="spacer"></div>
+                  </div>
+                </section>
+                
+                <section class="slide">
+                  <header>
+                    <div class="meta">
+                      <span class="kicker">SLIDE 05</span>
+                      <h2>낙상 감지 로직 개요</h2>
+                      
+                    </div>
+                    <div class="bar"></div>
+                  </header>
+                  <div class="content">
+                    <ul><li><strong>Geometry Rules</strong> 기반</li><li>핵심 규칙 3가지로 낙상 판단</li></ul>
+<div class="spacer"></div>
+                  </div>
+                </section>
+                
+                <section class="slide">
+                  <header>
+                    <div class="meta">
+                      <span class="kicker">SLIDE 06</span>
+                      <h2>Rule 1: 박스 비율 검사 (Aspect Ratio)</h2>
+                      
+                    </div>
+                    <div class="bar"></div>
+                  </header>
+                  <div class="content">
+                    <ul><li><strong>기준</strong>: <code>Width &gt; Height * 0.9</code></li><li><strong>의미</strong>: 서 있으면 길쭉, 누우면 납작</li></ul>
+<div class="spacer"></div>
+                  </div>
+                </section>
+                
+                <section class="slide">
+                  <header>
+                    <div class="meta">
+                      <span class="kicker">SLIDE 07</span>
+                      <h2>Rule 1: 박스 비율 검사 (Aspect Ratio)</h2>
+                      
+                    </div>
+                    <div class="bar"></div>
+                  </header>
+                  <div class="content">
+                    <pre><code class="language-text">[ 정상 : Standing ]                 [ 낙상 : Fall ]
+   (Normal State)                   (Emergency!)
+
+      ┌──────┐                      
+      │ HEAD │                      ┌────────────────────────┐
+      │  │   │   Height (H)         │   HEAD ── BODY ── LEGS │  Height (h)
+      │ BODY │     (큼)             └────────────────────────┘    (작음)
+      │  │   │                          Width (W) (아주 큼)
+      │ LEGS │                      
+      └──────┘                      ▶ 판정: W &gt; h
+      Width (w)                     ▶ 결과: FALL
+       (작음)
+
+▶ 판정: w &lt; H
+▶ 결과: OK</code></pre>
+                  </div>
+                </section>
+                
+                <section class="slide">
+                  <header>
+                    <div class="meta">
+                      <span class="kicker">SLIDE 08</span>
+                      <h2>Rule 1: 박스 비율 검사 (Aspect Ratio)</h2>
+                      
+                    </div>
+                    <div class="bar"></div>
+                  </header>
+                  <div class="content">
+                    <div class="spacer"></div>
+                  </div>
+                </section>
+                
+                <section class="slide">
+                  <header>
+                    <div class="meta">
+                      <span class="kicker">SLIDE 09</span>
+                      <h2>Rule 2: 척추 각도 검사 (Torso Angle)</h2>
+                      
+                    </div>
+                    <div class="bar"></div>
+                  </header>
+                  <div class="content">
+                    <ul><li><strong>기준</strong>: <code>|어깨Y - 골반Y| &lt; 키 * 0.2</code></li><li><strong>의미</strong>: 서 있으면 수직, 누우면 수평</li></ul>
+<div class="spacer"></div>
+                  </div>
+                </section>
+                
+                <section class="slide">
+                  <header>
+                    <div class="meta">
+                      <span class="kicker">SLIDE 10</span>
+                      <h2>Rule 2: 척추 각도 검사 (Torso Angle)</h2>
+                      
+                    </div>
+                    <div class="bar"></div>
+                  </header>
+                  <div class="content">
+                    <pre><code class="language-text">[ 정상 : Standing ]                       [ 낙상 : Fall ]
+
+      O  &lt;---- [어깨: Shoulder]
+      │                                   [어깨] ────── [골반]
+      │ Delta Y (수직 거리)                  ▲
+      │ (아주 김)                            │ Delta Y ≈ 0
+      │                                      │ (거의 차이 없음)
+      ●  &lt;---- [골반: Hip]                   ▼
+
+▶ 수직 거리(dy)가 큼                      ▶ 수직 거리 거의 0
+▶ 결과: OK                                ▶ 결과: FALL</code></pre>
+                  </div>
+                </section>
+                
+                <section class="slide">
+                  <header>
+                    <div class="meta">
+                      <span class="kicker">SLIDE 11</span>
+                      <h2>Rule 2: 척추 각도 검사 (Torso Angle)</h2>
+                      
+                    </div>
+                    <div class="bar"></div>
+                  </header>
+                  <div class="content">
+                    <div class="spacer"></div>
+                  </div>
+                </section>
+                
+                <section class="slide">
+                  <header>
+                    <div class="meta">
+                      <span class="kicker">SLIDE 12</span>
+                      <h2>Rule 3: 토르소 역전 검사 (Inverted Torso)</h2>
+                      
+                    </div>
+                    <div class="bar"></div>
+                  </header>
+                  <div class="content">
+                    <ul><li><strong>기준</strong>: <code>어깨 Y좌표 &gt; 골반 Y좌표</code></li><li><strong>의미</strong>: 어깨가 아래에 있으면 낙상</li></ul>
+<div class="spacer"></div>
+                  </div>
+                </section>
+                
+                <section class="slide">
+                  <header>
+                    <div class="meta">
+                      <span class="kicker">SLIDE 13</span>
+                      <h2>Rule 3: 토르소 역전 검사 (Inverted Torso)</h2>
+                      
+                    </div>
+                    <div class="bar"></div>
+                  </header>
+                  <div class="content">
+                    <pre><code class="language-text">        (카메라 정면/후면으로 거꾸로 넘어진 상황)
+
+          ●  &lt;---- [골반: Hip] (위쪽 = Y 작음)
+          │
+      ────┼────
+          │
+          O  &lt;---- [어깨: Shoulder] (아래쪽 = Y 큼)
+
+▶ 판정: Shoulder_Y &gt; Hip_Y
+▶ 결과: FALL</code></pre>
+                  </div>
+                </section>
+                
+                <section class="slide">
+                  <header>
+                    <div class="meta">
+                      <span class="kicker">SLIDE 14</span>
+                      <h2>Rule 3: 토르소 역전 검사 (Inverted Torso)</h2>
+                      
+                    </div>
+                    <div class="bar"></div>
+                  </header>
+                  <div class="content">
+                    <div class="spacer"></div>
+                  </div>
+                </section>
+                
+                <section class="slide">
+                  <header>
+                    <div class="meta">
+                      <span class="kicker">SLIDE 15</span>
+                      <h2>데이터셋</h2>
+                      
+                    </div>
+                    <div class="bar"></div>
+                  </header>
+                  <div class="content">
+                    <ul><li><strong>낙상</strong>: Simuletic Synthetic Fall &amp; Incident Detection Dataset (CC BY 4.0)</li><li><strong>얼굴</strong>: 내부 등록 이미지 기반</li></ul>
+<div class="spacer"></div>
+                  </div>
+                </section>
+                
+                <section class="slide">
+                  <header>
+                    <div class="meta">
+                      <span class="kicker">SLIDE 16</span>
+                      <h2>얼굴 인식 프로세스 (Face ID)</h2>
+                      
+                    </div>
+                    <div class="bar"></div>
+                  </header>
+                  <div class="content">
+                    <ol><li><strong>Face Detection</strong>: RetinaFace로 얼굴 영역 검출</li><li><strong>Feature Embedding</strong>: ArcFace로 512차원 벡터 생성</li><li><strong>Vector Matching</strong>: 코사인 유사도 비교</li><li><strong>Authorization</strong>: 유사도 0.5 이상 승인</li></ol>
+<div class="spacer"></div>
+                  </div>
+                </section>
+                
+                <section class="slide">
+                  <header>
+                    <div class="meta">
+                      <span class="kicker">SLIDE 17</span>
+                      <h2>벡터 매칭 원리</h2>
+                      
+                    </div>
+                    <div class="bar"></div>
+                  </header>
+                  <div class="content">
+                    <ul><li>얼굴 특징을 512차원 공간의 <strong>벡터</strong>로 변환</li><li>벡터 사이 <strong>각도(코사인 유사도)</strong>로 일치 여부 판단</li></ul>
+<div class="spacer"></div>
+                  </div>
+                </section>
+                
+                <section class="slide">
+                  <header>
+                    <div class="meta">
+                      <span class="kicker">SLIDE 18</span>
+                      <h2>벡터 매칭 원리</h2>
+                      
+                    </div>
+                    <div class="bar"></div>
+                  </header>
+                  <div class="content">
+                    <pre><code class="language-text">[ 벡터 매칭 시각화 ]
+
+     Vector A (등록된 얼굴)
+        ↗
+       /   θ (Angle)
+      /_____________↗  Vector B (실시간 얼굴)
+
+▶ cos(θ) 값이 1.0에 가까움  →  Match
+▶ cos(θ) 값이 0.0에 가까움  →  Mismatch</code></pre>
+                  </div>
+                </section>
+                
+                <section class="slide">
+                  <header>
+                    <div class="meta">
+                      <span class="kicker">SLIDE 19</span>
+                      <h2>벡터 매칭 원리</h2>
+                      
+                    </div>
+                    <div class="bar"></div>
+                  </header>
+                  <div class="content">
+                    <div class="spacer"></div>
+                  </div>
+                </section>
+                
+                <section class="slide">
+                  <header>
+                    <div class="meta">
+                      <span class="kicker">SLIDE 20</span>
+                      <h2>핵심 코드 (낙상 판단)</h2>
+                      
+                    </div>
+                    <div class="bar"></div>
+                  </header>
+                  <div class="content">
+                    <pre><code class="language-python">def check_fall_rule(bbox, kpts):
+    x, y, w, h = bbox
+
+    # Rule 1: 박스 비율
+    if w &gt; h * 0.9:
+        return True
+
+    # Rule 2/3: 어깨-골반 관계
+    shoulder_y = (kpts[5].y + kpts[6].y) / 2
+    hip_y = (kpts[11].y + kpts[12].y) / 2
+    if shoulder_y &gt; hip_y:
+        return True
+
+    if abs(shoulder_y - hip_y) &lt; h * 0.2:
+        return True
+
+    return False</code></pre>
+                  </div>
+                </section>
+                
+    </div>
+  </body>
+</html>

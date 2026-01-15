@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="240" viewBox="0 0 320 240">
+  <defs>
+    <style>
+      .bg { fill: #ffffff; }
+      .line { stroke: #111111; stroke-width: 4; fill: none; }
+      .accent { stroke: #10b981; stroke-width: 6; fill: none; }
+      .dot { fill: #111111; }
+      .label { fill: #111111; font-family: "Noto Sans KR", "Malgun Gothic", sans-serif; font-size: 18px; font-weight: 700; }
+    </style>
+  </defs>
+  <rect class="bg" x="0" y="0" width="320" height="240" />
+
+  <!-- Vertical posture -->
+  <circle class="dot" cx="90" cy="70" r="10" />
+  <circle class="dot" cx="90" cy="150" r="10" />
+  <line class="line" x1="90" y1="80" x2="90" y2="140" />
+  <line class="accent" x1="120" y1="80" x2="120" y2="140" />
+
+  <!-- Horizontal posture -->
+  <circle class="dot" cx="210" cy="115" r="10" />
+  <circle class="dot" cx="280" cy="115" r="10" />
+  <line class="line" x1="220" y1="115" x2="270" y2="115" />
+  <line class="accent" x1="230" y1="140" x2="270" y2="140" />
+
+  <text class="label" x="105" y="225">Rule 2</text>
+</svg>

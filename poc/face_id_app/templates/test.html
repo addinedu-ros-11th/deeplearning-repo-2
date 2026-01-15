@@ -43,6 +43,10 @@
           <input type="checkbox" name="use_fall_rules" {% if use_fall_rules %}checked{% endif %}>
           낙상 Python Rules 적용 (YOLOv11n-pose 전용)
         </label>
+        <label>
+          감지 임계값 (Confidence 0.0 ~ 1.0)
+          <input type="number" step="0.01" min="0.01" max="1.0" name="test_conf" value="{{ test_conf }}" required>
+        </label>
         <div class="form-row">
           <button type="submit">테스트 시작</button>
           <button type="submit" class="secondary" formaction="/test/stop">테스트 중지</button>

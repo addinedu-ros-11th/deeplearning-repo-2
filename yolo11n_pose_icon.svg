@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320" viewBox="0 0 320 320">
+  <defs>
+    <style>
+      .bg { fill: #ffffff; }
+      .line { stroke: #1e40af; stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+      .node { fill: #10b981; }
+      .node2 { fill: #3b82f6; }
+      .accent { fill: #0ea5e9; }
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="320" height="320" />
+
+  <!-- Head -->
+  <circle class="node2" cx="160" cy="60" r="16" />
+
+  <!-- Torso -->
+  <circle class="node" cx="160" cy="110" r="12" />
+  <circle class="node" cx="160" cy="160" r="12" />
+
+  <!-- Arms -->
+  <circle class="accent" cx="120" cy="110" r="10" />
+  <circle class="accent" cx="200" cy="110" r="10" />
+  <circle class="accent" cx="95" cy="145" r="10" />
+  <circle class="accent" cx="225" cy="145" r="10" />
+
+  <!-- Hips -->
+  <circle class="node" cx="140" cy="200" r="10" />
+  <circle class="node" cx="180" cy="200" r="10" />
+
+  <!-- Legs -->
+  <circle class="accent" cx="125" cy="245" r="10" />
+  <circle class="accent" cx="195" cy="245" r="10" />
+  <circle class="accent" cx="115" cy="285" r="10" />
+  <circle class="accent" cx="205" cy="285" r="10" />
+
+  <!-- Skeleton lines -->
+  <line class="line" x1="160" y1="76" x2="160" y2="98" />
+  <line class="line" x1="160" y1="122" x2="160" y2="148" />
+  <line class="line" x1="160" y1="172" x2="140" y2="190" />
+  <line class="line" x1="160" y1="172" x2="180" y2="190" />
+
+  <line class="line" x1="160" y1="110" x2="120" y2="110" />
+  <line class="line" x1="160" y1="110" x2="200" y2="110" />
+  <line class="line" x1="120" y1="110" x2="95" y2="145" />
+  <line class="line" x1="200" y1="110" x2="225" y2="145" />
+
+  <line class="line" x1="140" y1="200" x2="125" y2="245" />
+  <line class="line" x1="180" y1="200" x2="195" y2="245" />
+  <line class="line" x1="125" y1="245" x2="115" y2="285" />
+  <line class="line" x1="195" y1="245" x2="205" y2="285" />
+</svg>

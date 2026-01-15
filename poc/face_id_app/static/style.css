@@ -216,6 +216,17 @@ label {
   color: var(--text);
 }
 
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.checkbox-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+}
+
 input,
 select {
   padding: 8px 10px;

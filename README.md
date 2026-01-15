@@ -160,8 +160,8 @@ python app.py
 ------------------------------------------------------------------------
 
 <p align="left">
-  <img src="mind_reading.png" alt="관심법 로고" width="220" />
+  <img src="mind_reading.png" alt="안심가디언 로고" width="220" />
   <br />
-  <strong>관심법</strong> | 
-  <span>관심 요양원</span>
+  <strong>안심가디언</strong> | 
+  <span>안심 요양원</span>
 </p>

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="80" viewBox="0 0 320 80">
+  <defs>
+    <style>
+      .dot { fill: #f97316; }
+    </style>
+  </defs>
+
+  <!-- Dotted line -->
+  <circle class="dot" cx="20" cy="40" r="4" />
+  <circle class="dot" cx="50" cy="40" r="4" />
+  <circle class="dot" cx="80" cy="40" r="4" />
+  <circle class="dot" cx="110" cy="40" r="4" />
+  <circle class="dot" cx="140" cy="40" r="4" />
+  <circle class="dot" cx="170" cy="40" r="4" />
+  <circle class="dot" cx="200" cy="40" r="4" />
+  <circle class="dot" cx="230" cy="40" r="4" />
+  <circle class="dot" cx="260" cy="40" r="4" />
+  <circle class="dot" cx="290" cy="40" r="4" />
+
+  <!-- Label removed for a cleaner connector -->
+</svg>
