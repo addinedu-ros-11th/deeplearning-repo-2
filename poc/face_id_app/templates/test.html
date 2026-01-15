@@ -2,12 +2,12 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8">
-  <title>관심 요양원 - 모델 테스트</title>
+  <title>안심 요양원 - 모델 테스트</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <header>
-    <h1>관심 요양원 - AI 통합 모니터</h1>
+    <h1>안심 요양원 - AI 통합 모니터</h1>
     <nav>
       <a href="/" class="{% if request.path == '/' %}active{% endif %}">모니터</a>
       <a href="/register" class="{% if request.path == '/register' %}active{% endif %}">등록</a>
@@ -38,6 +38,10 @@
         <label>
           모델 경로
           <input type="text" name="model_path" value="{{ model_path }}" required>
+        </label>
+        <label class="checkbox-row">
+          <input type="checkbox" name="use_fall_rules" {% if use_fall_rules %}checked{% endif %}>
+          낙상 Python Rules 적용 (YOLOv11n-pose 전용)
         </label>
         <div class="form-row">
           <button type="submit">테스트 시작</button>
